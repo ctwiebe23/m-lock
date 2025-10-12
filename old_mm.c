@@ -42,14 +42,14 @@
  *   | s  s  s  .  .  .  s  0  0  a |
  *   +------------------------------+
  * 
- * Where s is the size of the block's data in bytes and a is set if the block
- * is allocated.  Blocks are aligned to eight-byte boundaries, which is why the
+ * Where s is the size of the block's data and a is set if the block is
+ * allocated.  Blocks are aligned to eight-byte boundaries, which is why the
  * first three bits of the size are inconsequential.
  * 
  * For free blocks, the first two words of the payload will be pointers to the
- * header of the next free block and the previous free block.  Thus, the
- * smallest possible block size is four words (two words of data/pointers, two
- * words of header/boundary tag).
+ * next free block and the previous free block.  Thus, the smallest possible
+ * block size is four words (two words of data/pointers, two words of
+ * header/boundary tag).
  */
 
 #include <stdio.h>
@@ -70,42 +70,42 @@ team_t team = {
 #define WSIZE       4           // Word size in bytes
 #define DSIZE       8           // Double word size in bytes
 #define CHUNKSIZE   (1 << 12)   // Initial heap size in bytes
-#define OVERHEAD    WSIZE       // Header/boundary tag size in bytes
+#define OVERHEAD    WSIZE       // Header size in bytes
 
 /**
  * @returns The larger of x or y.
  */
-#define MAX(x, y)   ((x) > (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 /**
  * @param size The aligned size of the block's data.
  * @param alloc 1 if the block is allocated, else 0.
  * @returns The header/boundary tag.
  */
-#define PACK(size, alloc)   ((size) | (alloc))
+#define PACK(size, alloc)  ((size) | (alloc))
 
 /**
  * @param p Pointer to a word.
  * @returns The value at p.
  */
-#define GET(p)  (*(size_t *)(p))
+#define GET(p)      (*(size_t *)(p))
 
 /**
  * @param p Pointer to a word.
  * @param val The value to put at p.
  * @returns val.
  */
-#define PUT(p, val)     (*(size_t *)(p) = (val))
+#define PUT(p, val) (*(size_t *)(p) = (val))
 
 /**
  * @param p Pointer to a header/boundary tag.
- * @returns The size of the block's data in bytes.
+ * @returns The size of the following block.
  */
 #define GET_SIZE(p)     (GET(p) & ~0x7)
 
 /**
  * @param p Pointer to a header/boundary tag.
- * @returns Whether or not the block is allocated.
+ * @returns Whether or not the following block is allocated.
  */
 #define GET_ALLOC(p)    (GET(p) & 0x1)
 
@@ -117,13 +117,17 @@ team_t team = {
 
 /**
  * @param bp Pointer to the start of a block's data.
- * @returns Pointer to the next block's data.
+ * @returns Pointer to the header of the next block.
  */
-#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp)) + (OVERHEAD * 2))
+#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp)))
 
-static char *heap_listp;  // Byte pointer to the first block
+/* $end mallocmacros */
 
-// Function prototypes for internal helper routines
+
+/* Global variables */
+static char *heap_listp;  /* pointer to first block */
+
+/* function prototypes for internal helper routines */
 static void *extend_heap(size_t words);
 static void place(void *bp, size_t asize);
 static void *find_fit(size_t asize);
@@ -136,20 +140,19 @@ static void printblock(void *bp);
 int mm_init(void)
 {
    /* create the initial empty heap */
-   if ((heap_listp = mem_sbrk(4 * WSIZE)) == NULL)
+   if ((heap_listp = mem_sbrk(4*WSIZE)) == NULL)
         return -1;
    PUT(heap_listp, KEY);               /* alignment padding */
-   PUT(heap_listp + WSIZE, PACK(DSIZE, 0));  /* prologue header */
-   PUT(heap_listp + DSIZE, PACK(0, 0));  /* empty word*/
-   PUT(heap_listp + DSIZE + WSIZE, PACK(0, 0));   /* epilogue header */
+   PUT(heap_listp+WSIZE, PACK(DSIZE, 0));  /* prologue header */
+   PUT(heap_listp+DSIZE, PACK(0, 0));  /* empty word*/
+   PUT(heap_listp+DSIZE+WSIZE, PACK(0, 0));   /* epilogue header */
    heap_listp += (DSIZE);
 
 
    /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-   if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
+   if (extend_heap(CHUNKSIZE/WSIZE) == NULL)
         return -1;
-
-   return (int)heap_listp;
+   return (int) heap_listp;
 }
 /* $end mminit */
 
@@ -253,11 +256,11 @@ static void *extend_heap(size_t words)
 
     /* Allocate an even number of words to maintain alignment */
     size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
-    if ((bp = mem_sbrk(size)) == (void *)-1)  // TODO: plus overhead?
+    if ((bp = mem_sbrk(size)) == (void *)-1)
         return NULL;
 
     /* Initialize free block header and the epilogue header */
-    PUT(HDRP(bp), PACK(size, 1));   /* free block header */ // TODO: put 0 not 1?
+    PUT(HDRP(bp), PACK(size, 1));         /* free block header */
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 0)); /* new epilogue header */
     return bp;
 }
@@ -275,12 +278,12 @@ static void place(void *bp, size_t asize)
     size_t csize = GET_SIZE(HDRP(bp));
     // printf("csize = %d\n", csize);
 
-    if ((csize - asize) >= (DSIZE)) {  // TODO: new min
-        PUT(HDRP(bp), PACK(asize, 0));  // TODO: swap 0 1
+    if ((csize - asize) >= (DSIZE)) {
+        PUT(HDRP(bp), PACK(asize, 0));
         bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACK(csize-asize, 1));  // TODO: swap 0 1
+        PUT(HDRP(bp), PACK(csize-asize, 1));
     } else {
-        PUT(HDRP(bp), PACK(csize, 0));  // TODO: swap 0 1
+        PUT(HDRP(bp), PACK(csize, 0));
     }
 }
 /* $end mmplace */
