@@ -56,6 +56,7 @@ typedef char    Byte;   // A byte.  8 bits.
 
 #define WORD_SIZE       4           // Word size in bytes
 #define MIN_DATA_SIZE   8           // Minimum size of block data in bytes
+#define MIN_BLOCK_SIZE  16          // Minimum size of a total block in bytes
 #define CHUNK_SIZE      (1 << 12)   // Initial heap size in bytes
 #define HEADER_SIZE     WORD_SIZE   // Header size in bytes
 #define BOUNDARY_SIZE   WORD_SIZE   // Boundary tag size in bytes
@@ -132,6 +133,13 @@ typedef char    Byte;   // A byte.  8 bits.
  */
 #define GET_ALLOC(bp) \
     GET_ALLOC_FROM_HEADER(GET_HEADER(bp))
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Pointer to the block's boundary tag.
+ */
+#define GET_BOUNDARY(bp) \
+    ((Byte *)(bp) + GET_SIZE(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
@@ -220,7 +228,7 @@ static void insertFreeBlock(Word* fp);
 static void removeFreeBlock(Word* fp);
 
 /**
- * Extends the heap with a new free block and returns a pointer to it's data.
+ * Extends the heap with a new free block and returns a pointer to its data.
  * @param numNeededWords The number of words that need to be in the block's data.
  * @returns Pointer to a new block's data on success, null on failure.
  */
@@ -258,40 +266,28 @@ static void printBlock(Byte *bp);
  */
 int mm_init(void) {
     // Allocate initial heap
-    heapList = mem_sbrk(4 * WORD_SIZE);
+    heapList = mem_sbrk(BOUNDARY_SIZE + HEADER_SIZE);
 
     if (heapList == NULL) {
         return -1;
     }
 
-    Word limitHeader = PACK_HEADER(0, 1);
+    PUT_WORD(heapList, PACK_HEADER(0, 1));  // Prologue boundary tag
+    heapList += WORD_SIZE;
+    PUT_WORD(heapList, PACK_HEADER(0, 1));  // Epilogue header
+
+    freeList = extendHeap(CHUNK_SIZE / WORD_SIZE);
+
+    if (freeList == NULL) {
+        return -1;
+    }
+
+    // There are no other free blocks
+    PUT_NEXT_FREE(freeList, NULL);
+    PUT_PREV_FREE(freeList, NULL);
 
     return (int)heapList;
 }
-
-/*
- * mm_init - Initialize the memory manager
- */
-/* $begin mminit */
-int mm_init(void)
-{
-   /* create the initial empty heap */
-   if ((heap_listp = mem_sbrk(4 * WSIZE)) == NULL)
-        return -1;
-   PUT(heap_listp, KEY);               /* alignment padding */
-   PUT(heap_listp + WSIZE, PACK(DSIZE, 0));  /* prologue header */
-   PUT(heap_listp + DSIZE, PACK(0, 0));  /* empty word*/
-   PUT(heap_listp + DSIZE + WSIZE, PACK(0, 0));   /* epilogue header */
-   heap_listp += (DSIZE);
-
-
-   /* Extend the empty heap with a free block of CHUNKSIZE bytes */
-   if (extend_heap(CHUNKSIZE / WSIZE) == NULL)
-        return -1;
-
-   return (int)heap_listp;
-}
-/* $end mminit */
 
 /*
  * mm_malloc - Allocate a block with at least size bytes of payload
@@ -380,28 +376,33 @@ void mm_checkheap(int verbose)
         printf("Bad epilogue header\n");
 }
 
-/* The remaining routines are internal helper routines */
+static Byte *extendHeap(size_t numNeededWords) {
+    if (numNeededWords % 2 == 1) {
+        numNeededWords += 1;
+    }
 
-/*
- * extend_heap - Extend heap with free block and return its block pointer
- */
-/* $begin mmextendheap */
-static void *extend_heap(size_t words)
-{
-    char *bp;
-    size_t size;
+    // Assuming numNeedWords was originally > 0, we know it now has a minimum
+    // value of two, so we don't need to make an additional check to confirm
+    // it reaches the minimum block size.
 
-    /* Allocate an even number of words to maintain alignment */
-    size = (words % 2) ? (words+1) * WSIZE : words * WSIZE;
-    if ((bp = mem_sbrk(size)) == (void *)-1)  // TODO: plus overhead?
+    Word size = numNeededWords * WORD_SIZE;
+    Byte *fp = mem_sbrk(size + BOUNDARY_SIZE + HEADER_SIZE);
+
+    if (fp == (void *)-1) {
         return NULL;
+    }
 
-    /* Initialize free block header and the epilogue header */
-    PUT(HDRP(bp), PACK(size, 1));   /* free block header */ // TODO: put 0 not 1?
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 0)); /* new epilogue header */
-    return bp;
+    PUT_WORD(GET_HEADER(fp), PACK_HEADER(size, 0));     // Override old epilogue with new header
+    PUT_WORD(GET_BOUNDARY(fp), PACK_HEADER(size, 0));   // Set boundary tag
+    PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));   // New epilogue
+
+    PUT_NEXT_FREE(fp, freeList);
+    PUT_PREV_FREE(freeList, fp);
+    PUT_PREV_FREE(fp, NULL);
+    freeList = fp;
+
+    return fp;
 }
-/* $end mmextendheap */
 
 /*
  * place - Place block of asize bytes at start of free block bp
