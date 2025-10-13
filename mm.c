@@ -1,32 +1,4 @@
 /*
- * mm-handout.c -  Simple allocator based on implicit free lists and
- *                 first fit placement (similar to lecture4.pptx).
- *                 It does not use boundary tags and does not perform
- *                 coalescing. Thus, it tends to run out of memory
- *                 when used to allocate objects in large traces
- *                 due to external fragmentation.
- *
- * Each block has a header of the form:
- *
- *      31                     3  2  1  0
- *      -----------------------------------
- *     | s  s  s  s  ... s  s  s  0  0  a/f
- *      -----------------------------------
- *
- * where s are the meaningful size bits and a/f is set
- * if the block is allocated. The list has the following form:
- *
- * begin                                                         end
- * heap                                                          heap
- *  -----------------------------------------------------------------
- * |  pad   | hdr(8:a) |   pad   | zero or more usr blks | hdr(8:a) |
- *  -----------------------------------------------------------------
- *    four  | prologue |  four   |                       | epilogue |
- *    bytes | block    |  bytes  |                       | block    |
- *
- */
-
-/*
  * PROJECT  : M-LOCK
  * FILE     : mm.c
  * AUTHOR   : Carston Wiebe
@@ -47,9 +19,17 @@
  * first three bits of the size are inconsequential.
  * 
  * For free blocks, the first two words of the payload will be pointers to the
- * header of the next free block and the previous free block.  Thus, the
- * smallest possible block size is four words (two words of data/pointers, two
- * words of header/boundary tag).
+ * data of the next free block and the previous free block.  Thus, the smallest
+ * possible total block size is four words (two words of data/pointers, two
+ * words of header/boundary tag).  Data-wise, the smallest possible block is
+ * two words.
+ * 
+ * The free list is LIFO --- only the "first" node of the list is tracked using
+ * a global variable, and new frees will be inserted at the start to become the
+ * new head.
+ * 
+ * This program expects to be ran on a 32-bit machine, and will not work
+ * properly otherwise.
  */
 
 #include <stdio.h>
@@ -67,67 +47,227 @@ team_t team = {
     ""  // No teamate
 };
 
-#define WSIZE       4           // Word size in bytes
-#define DSIZE       8           // Double word size in bytes
-#define CHUNKSIZE   (1 << 12)   // Initial heap size in bytes
-#define OVERHEAD    WSIZE       // Header/boundary tag size in bytes
+// ---[ TYPES ]----------------------------------------------------------------
+
+typedef size_t  Word;   // A word.  32 bits in a 32-bit system.
+typedef char    Byte;   // A byte.  8 bits.
+
+// ---[ CONSTANTS ]------------------------------------------------------------
+
+#define WORD_SIZE       4           // Word size in bytes
+#define MIN_DATA_SIZE   8           // Minimum size of block data in bytes
+#define CHUNK_SIZE      (1 << 12)   // Initial heap size in bytes
+#define HEADER_SIZE     WORD_SIZE   // Header size in bytes
+#define BOUNDARY_SIZE   WORD_SIZE   // Boundary tag size in bytes
+
+// ---[ MACROS ]---------------------------------------------------------------
 
 /**
  * @returns The larger of x or y.
  */
-#define MAX(x, y)   ((x) > (y) ? (x) : (y))
+#define MAX(x, y) \
+    ((x) > (y) ? (x) : (y))
 
 /**
- * @param size The aligned size of the block's data.
+ * @param size The aligned size of the block's data in bytes.
  * @param alloc 1 if the block is allocated, else 0.
  * @returns The header/boundary tag.
  */
-#define PACK(size, alloc)   ((size) | (alloc))
+#define PACK_HEADER(size, alloc) \
+    ((Word)(size) | (Word)(alloc))
 
 /**
  * @param p Pointer to a word.
  * @returns The value at p.
  */
-#define GET(p)  (*(size_t *)(p))
+#define GET_WORD(p) \
+    (*(Word *)(p))
 
 /**
  * @param p Pointer to a word.
  * @param val The value to put at p.
  * @returns val.
  */
-#define PUT(p, val)     (*(size_t *)(p) = (val))
+#define PUT_WORD(p, val) \
+    (GET_WORD(p) = (val))
 
 /**
  * @param p Pointer to a header/boundary tag.
  * @returns The size of the block's data in bytes.
  */
-#define GET_SIZE(p)     (GET(p) & ~0x7)
+#define GET_SIZE_FROM_HEADER(p) \
+    (GET_WORD(p) & ~0x7)
 
 /**
  * @param p Pointer to a header/boundary tag.
  * @returns Whether or not the block is allocated.
  */
-#define GET_ALLOC(p)    (GET(p) & 0x1)
+#define GET_ALLOC_FROM_HEADER(p) \
+    (GET_WORD(p) & 0x1)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the block's header.
  */
-#define HDRP(bp)    ((char *)(bp) - OVERHEAD)
+#define GET_HEADER(bp) \
+    ((Byte *)(bp) - HEADER_SIZE)
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Pointer to the previous block's boundary tag.
+ */
+#define GET_PREV_BOUNDARY(bp) \
+    ((Byte *)(bp) - HEADER_SIZE - BOUNDARY_SIZE)
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns The size of the block's data in bytes.
+ */
+#define GET_SIZE(bp) \
+    GET_SIZE_FROM_HEADER(GET_HEADER(bp))
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Whether or not the block is allocated.
+ */
+#define GET_ALLOC(bp) \
+    GET_ALLOC_FROM_HEADER(GET_HEADER(bp))
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns The size of the previous block's data in bytes.
+ */
+#define GET_PREV_SIZE(bp) \
+    GET_SIZE_FROM_HEADER(GET_PREV_BOUNDARY(bp))
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Whether or not the previous block is allocated.
+ */
+#define GET_PREV_ALLOC(bp) \
+    GET_ALLOC_FROM_HEADER(GET_PREV_BOUNDARY(bp))
+
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Pointer to the next block's header.
+ */
+#define GET_NEXT_HEADER(bp) \
+    ((Byte *)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the next block's data.
  */
-#define NEXT_BLKP(bp)   ((char *)(bp) + GET_SIZE(HDRP(bp)) + (OVERHEAD * 2))
+#define GET_NEXT_BLOCK(bp) \
+    ((Byte *)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE)
 
-static char *heap_listp;  // Byte pointer to the first block
+/**
+ * @param bp Pointer to the start of a block's data.
+ * @returns Pointer to the previous block's data.
+ */
+#define GET_PREV_BLOCK(bp) \
+    ((Byte *)(bp) - HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
 
-// Function prototypes for internal helper routines
-static void *extend_heap(size_t words);
-static void place(void *bp, size_t asize);
-static void *find_fit(size_t asize);
-static void printblock(void *bp);
+/**
+ * @param fp Pointer to the start of a free block's data.
+ * @returns Pointer to the start of the next free block's data.
+ */
+#define GET_NEXT_FREE(fp) \
+    GET_WORD(fp)
+
+/**
+ * @param fp Pointer to the start of a free block's data.
+ * @returns Pointer to the start of the previous free block's data.
+ */
+#define GET_PREV_FREE(fp) \
+    GET_WORD((Word *)fp + 1)
+
+/**
+ * @param fp Pointer to the start of a free block's data.
+ * @param val The value to put as the pointer to the next free block.
+ * @returns val.
+ */
+#define PUT_NEXT_FREE(fp, val) \
+    (GET_NEXT_FREE(fp) = (val))
+
+/**
+ * @param fp Pointer to the start of a free block's data.
+ * @param val The value to put as the pointer to the previous free block.
+ * @returns val.
+ */
+#define PUT_PREV_FREE(fp, val) \
+    (GET_PREV_FREE(fp) = (val))
+
+// ---[ GLOBALS ]--------------------------------------------------------------
+
+static Word *freeList;  // Pointer to the data of the first block of the free list
+static Byte *heapList;  // Pointer to the data of the first block of the heap
+
+// ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
+
+/**
+ * Inserts a new free block at the start of the free list and adjusts the
+ * previous head's prev pointer.
+ * @param fp Pointer to the start of a new free block's data.
+ */
+static void insertFreeBlock(Word* fp);
+
+/**
+ * Removes a free block from the free list and adjusts its neighbor's next and
+ * prev pointers.
+ * @param fp Pointer to the start of a free block's data.
+ */
+static void removeFreeBlock(Word* fp);
+
+/**
+ * Extends the heap with a new free block and returns a pointer to it's data.
+ * @param numNeededWords The number of words that need to be in the block's data.
+ * @returns Pointer to a new block's data on success, null on failure.
+ */
+static Byte *extendHeap(size_t numNeededWords);
+
+/**
+ * Place an allocated block of at least the given size at the given free block.
+ * Properly re-points the free list and adjusts the given size to abide by the
+ * byte alignment and minimum block size.
+ * @param fp Pointer to the start of a free block's data.
+ * @param size The size of the block that must be allocated.
+ * @returns 0 on a success, -1 on failure.
+ */
+static int place(Byte *fp, Word size);
+
+/**
+ * Finds a free block that can fit an allocated block of the given size.
+ * @param size The size of the block that must be allocated.
+ * @returns Pointer to the start of a free block's data, if one exists of the
+ * needed size.  Else returns null.
+ */
+static Byte *findFit(Word size);
+
+/**
+ * Prints the given block to the STDOUT.
+ * @param bp Pointer to the start of a block's data.
+ */
+static void printBlock(Byte *bp);
+
+// ---[ FUNCTIONS ]------------------------------------------------------------
+
+/**
+ * Initialize the memory manager.
+ * @returns Pointer to the start of the heap on a success, else -1.
+ */
+int mm_init(void) {
+    // Allocate initial heap
+    heapList = mem_sbrk(4 * WORD_SIZE);
+
+    if (heapList == NULL) {
+        return -1;
+    }
+
+    Word limitHeader = PACK_HEADER(0, 1);
+
+    return (int)heapList;
+}
 
 /*
  * mm_init - Initialize the memory manager
@@ -315,4 +455,3 @@ static void printblock(void *bp)
 
         printf("%p: header: [%zu:%c]\n", bp, hsize, (halloc ? 'f' : 'a'));
 }
-
