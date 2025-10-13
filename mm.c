@@ -276,15 +276,19 @@ int mm_init(void) {
     heapList += WORD_SIZE;
     PUT_WORD(heapList, PACK_HEADER(0, 1));  // Epilogue header
 
+    // Epilogue becomes header for the initial free block, extendHeap creates
+    // new epilogue
     freeList = extendHeap(CHUNK_SIZE / WORD_SIZE);
 
     if (freeList == NULL) {
         return -1;
     }
 
-    // There are no other free blocks
+    // Initialize empty free list
     PUT_NEXT_FREE(freeList, NULL);
     PUT_PREV_FREE(freeList, NULL);
+
+    heapList = freeList;
 
     return (int)heapList;
 }
