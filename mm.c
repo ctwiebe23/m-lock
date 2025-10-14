@@ -64,10 +64,16 @@ typedef char    Byte;   // A byte.  8 bits.
 // ---[ MACROS ]---------------------------------------------------------------
 
 /**
- * @returns The larger of x or y.
+ * @returns The larger of x and y.
  */
 #define MAX(x, y) \
     ((x) > (y) ? (x) : (y))
+
+/**
+ * @returns The smaller of x and y.
+ */
+#define MIN(x, y) \
+    ((x) < (y) ? (x) : (y))
 
 /**
  * @param size The aligned size of the block's data in bytes.
@@ -206,19 +212,42 @@ typedef char    Byte;   // A byte.  8 bits.
 #define PUT_PREV_FREE(fp, val) \
     (GET_PREV_FREE(fp) = (val))
 
+/**
+ * @param bytes The original number of bytes.
+ * @returns The adjusted number of bytes that is aligned.
+ */
+#define ALIGN_BYTES(bytes) \
+    ((bytes % 8 == 0) ? bytes : 8 * (bytes / 8 + 1))
+
+/**
+ * Redoes the header and boundary tag of the given block.
+ * @param bp Pointer to the start of a block's data.
+ * @param size The aligned size of the block's data in bytes.
+ * @param alloc 1 if the block is allocated, else 0.
+ */
+#define REDO_HEADERS(bp, size, alloc) \
+    do { \
+        PUT_WORD(GET_HEADER(bp), PACK_HEADER(size, alloc)); \
+        PUT_WORD(GET_BOUNDARY(bp), PACK_HEADER(size, alloc)); \
+    } while (0);
+
+/**
+ * Makes two free blocks point to each other.
+ * @param fp1 Pointer to the start of a free block's data.
+ * @param fp2 Pointer to the start of a free block's data.
+ */
+#define LINK_FREE(fp1, fp2) \
+    do { \
+        PUT_NEXT_FREE(fp1, fp2); \
+        PUT_PREV_FREE(fp2, fp1); \
+    } while (0);
+
 // ---[ GLOBALS ]--------------------------------------------------------------
 
 static Word *freeList;  // Pointer to the data of the first block of the free list
 static Byte *heapList;  // Pointer to the data of the first block of the heap
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
-
-/**
- * Inserts a new free block at the start of the free list and adjusts the
- * previous head's prev pointer.
- * @param fp Pointer to the start of a new free block's data.
- */
-static void insertFreeBlock(Word* fp);
 
 /**
  * Removes a free block from the free list and adjusts its neighbor's next and
@@ -335,50 +364,128 @@ void *mm_malloc(size_t size)
 }
 /* $end mmmalloc */
 
-/*
- * mm_free - Free a block
+/**
+ * Frees the given block by adding it to the free list.
+ * @param bp Pointer to the start of a block's data.
  */
-/* $begin mmfree */
-void mm_free(void *bp)
-{
-    //printf("call mm_free\n");
+void mm_free(void *bp) {
+    Word size = GET_SIZE(bp);
 
-    /* You need to implement this function */
-}
-
-/* $end mmfree */
-
-/*
- * mm_realloc - naive implementation of mm_realloc
- */
-void *mm_realloc(void *ptr, size_t size)
-{
-    /* You need to implement this function. */
-    return NULL;
-}
-
-/*
- * mm_checkheap - Check the heap for consistency
- */
-void mm_checkheap(int verbose)
-{
-    char *bp = heap_listp;
-
-    if (verbose)
-        printf("Heap (%p):\n", heap_listp);
-    if ((GET_SIZE(HDRP(heap_listp)) != DSIZE) || GET_ALLOC(HDRP(heap_listp)))
-        printf("Bad prologue header\n");
-
-    for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-        if (verbose)
-            printblock(bp);
+    if (GET_PREV_ALLOC(bp) == 0) {
+        bp = GET_PREV_BLOCK(bp);
+        size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
+        REDO_HEADERS(bp, size, 0);
+        removeFreeBlock(bp);
+        // LINK_FREE(GET_PREV_FREE(bp), GET_NEXT_FREE(bp));  TODO: adapt to remove with caution for removing head
     }
 
-    if (verbose)
-        printblock(bp);
-    if ((GET_SIZE(HDRP(bp)) != 0) || (GET_ALLOC(HDRP(bp))))
-        printf("Bad epilogue header\n");
+    Byte* nextHeader = GET_NEXT_HEADER(bp);
+
+    if (GET_ALLOC_FROM_HEADER(nextHeader) == 0) {
+        size += GET_SIZE_FROM_HEADER(nextHeader) + BOUNDARY_SIZE + HEADER_SIZE;
+        REDO_HEADERS(bp, size, 0);
+        removeFreeBlock(nextHeader + HEADER_SIZE);
+    }
+
+    // Insert bp before the current free list head
+    LINK_FREE(bp, freeList);
+    PUT_PREV_FREE(bp, NULL);
+    freeList = bp;
 }
+
+/**
+ * Re-allocates the given pointer to a block of the given size.
+ * @param ptr Pointer to the start of a block's data.
+ * @param size The new size of the block in bytes.
+ * @returns The new pointer.
+ */
+void *mm_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return mm_malloc(size);
+    }
+
+    if (size == 0) {
+        mm_free(ptr);
+        return NULL;
+    }
+
+    size = ALIGN_BYTES(size);
+    Word currentSize = GET_SIZE(ptr);
+
+    if (size == currentSize) {
+        return ptr;
+    }
+
+    if (size > currentSize) {
+        size_t difference = size - currentSize;
+        Byte* nextBp = GET_NEXT_BLOCK(ptr);
+        size_t gainedInMerge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(nextBp);
+
+        if (GET_ALLOC(nextBp) == 1) {
+            // Next block is not free
+            goto returnNewPointer;
+        }
+
+        if (gainedInMerge < difference) {
+            // Next block is not large enough
+            goto returnNewPointer;
+        }
+
+        if (gainedInMerge == difference) {
+            // Next block is exactly large enough
+            removeFreeBlock(nextBp);
+            REDO_HEADERS(ptr, size, 1);
+            return ptr;
+        }
+
+        return NULL;  // TODO: merge or returnUnchangedPointer
+    }
+
+    if (size < currentSize) {
+        // TODO
+        return NULL;
+    }
+
+returnNewPointer:
+    Byte* newPtr = mm_malloc(size);
+
+    // Copy old data over
+    Byte* newPtrIterator = newPtr;
+    Byte* oldPtrIterator = ptr;
+    Byte* stoppingPoint = oldPtrIterator + MIN(currentSize, size);
+
+    while (oldPtrIterator != stoppingPoint) {
+        (*newPtrIterator) = (*oldPtrIterator);
+        newPtrIterator++;
+        oldPtrIterator++;
+    }
+
+    mm_free(ptr);
+    return newPtr;
+}
+
+// /*
+//  * mm_checkheap - Check the heap for consistency
+//  */
+// void mm_checkheap(int verbose)
+// {
+//     char *bp = heap_listp;
+
+//     if (verbose)
+//         printf("Heap (%p):\n", heap_listp);
+//     if ((GET_SIZE(HDRP(heap_listp)) != DSIZE) || GET_ALLOC(HDRP(heap_listp)))
+//         printf("Bad prologue header\n");
+
+//     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
+//         if (verbose)
+//             printblock(bp);
+//     }
+
+//     if (verbose)
+//         printblock(bp);
+//     if ((GET_SIZE(HDRP(bp)) != 0) || (GET_ALLOC(HDRP(bp))))
+//         printf("Bad epilogue header\n");
+// }
 
 static Byte *extendHeap(size_t numNeededWords) {
     if (numNeededWords % 2 == 1) {
@@ -396,12 +503,10 @@ static Byte *extendHeap(size_t numNeededWords) {
         return NULL;
     }
 
-    PUT_WORD(GET_HEADER(fp), PACK_HEADER(size, 0));     // Override old epilogue with new header
-    PUT_WORD(GET_BOUNDARY(fp), PACK_HEADER(size, 0));   // Set boundary tag
+    REDO_HEADERS(fp, size, 0);                          // Override old epilogue with new header
     PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));   // New epilogue
 
-    PUT_NEXT_FREE(fp, freeList);
-    PUT_PREV_FREE(freeList, fp);
+    LINK_FREE(fp, freeList);
     PUT_PREV_FREE(fp, NULL);
     freeList = fp;
 
@@ -430,20 +535,20 @@ static void place(void *bp, size_t asize)
 }
 /* $end mmplace */
 
-/*
- * find_fit - Find a fit for a block with asize bytes
- */
-static void *find_fit(size_t asize)
-{
-    /* first fit search */
-    void *bp;
+static Byte *findFit(Word size) {
+    if (freeList == NULL) {
+        return NULL;
+    }
 
-    for (bp = heap_listp; GET_SIZE(bp-WSIZE) > 0; bp = NEXT_BLKP(bp)) {
-        if (GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
-            return bp;
+    size = ALIGN_BYTES(size);
+
+    for (Word* fp = freeList; fp != NULL; fp = GET_NEXT_FREE(fp)) {
+        if (GET_SIZE(fp) >= size) {
+            return fp;
         }
     }
-    return NULL; /* no fit */
+
+    return NULL;
 }
 
 static void printblock(void *bp)
