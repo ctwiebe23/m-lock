@@ -47,6 +47,32 @@ team_t team = {
     ""  // No teamate
 };
 
+// ---[ CONFIG ]---------------------------------------------------------------
+
+/**
+ * Disable to hide debug messages.
+ */
+#define ENABLE_DEBUG
+
+#ifdef ENABLE_DEBUG
+
+/**
+ * Prints the given debug message.
+ * @param templateString The template string passed to printf.
+ * @param __VA_ARGS__ Other arguments passed to printf.
+ */
+#define DEBUG(templateString, ...) \
+    do { \
+        printf("%s %3d ### ", __FILE__, __LINE__); \
+        printf(templateString, __VA_ARGS__); \
+    } while (0);
+
+#else
+
+#define DEBUG(templateString, ...)
+
+#endif
+
 // ---[ TYPES ]----------------------------------------------------------------
 
 typedef size_t  Word;   // A word.  32 bits in a 32-bit system.
@@ -486,6 +512,23 @@ returnNewPointer:
 //     if ((GET_SIZE(HDRP(bp)) != 0) || (GET_ALLOC(HDRP(bp))))
 //         printf("Bad epilogue header\n");
 // }
+
+static void removeFreeBlock(Word* fp) {
+    Word* next = GET_NEXT_FREE(fp);
+    Word* prev = GET_PREV_FREE(fp);
+
+    if (fp == freeList) {
+        freeList = next;
+    }
+
+    if (prev && next) {
+        LINK_FREE(prev, next);
+    } else if (prev) {
+        PUT_NEXT_FREE(prev, NULL);
+    } else if (next) {
+        PUT_PREV_FREE(next, NULL);
+    }
+}
 
 static Byte *extendHeap(size_t numNeededWords) {
     if (numNeededWords % 2 == 1) {
