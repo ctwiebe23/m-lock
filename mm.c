@@ -266,13 +266,17 @@ typedef char    Byte;   // A byte.  8 bits.
  */
 #define LINK_FREE(fp1, fp2) \
     do { \
-        PUT_NEXT_FREE(fp1, fp2); \
-        PUT_PREV_FREE(fp2, fp1); \
+        if (fp1) { \
+            PUT_NEXT_FREE(fp1, fp2); \
+        } \
+        if (fp2) { \
+            PUT_PREV_FREE(fp2, fp1); \
+        } \
     } while (0);
 
 // ---[ GLOBALS ]--------------------------------------------------------------
 
-static Byte *freeList;  // Pointer to the data of the first block of the free list
+static Byte *freeList = NULL;  // Pointer to the data of the first block of the free list
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -284,11 +288,11 @@ static Byte *freeList;  // Pointer to the data of the first block of the free li
 static void removeFreeBlock(Byte* fp);
 
 /**
- * Extends the heap with a new free block and returns a pointer to its data.
+ * Extends the heap with a new free block and inserts it into the free list.
  * @param numNeededWords The number of words that need to be in the block's data.
- * @returns Pointer to a new block's data on success, null on failure.
+ * @returns 0 on success, -1 on failure.
  */
-static Byte *extendHeap(size_t numNeededWords);
+static int extendHeap(size_t numNeededWords);
 
 /**
  * Place an allocated block of at least the given size at the given free block.
@@ -334,22 +338,14 @@ int mm_init(void) {
     heapList += WORD_SIZE;
     PUT_WORD(heapList, PACK_HEADER(0, 1));  // Epilogue header
 
-    // Epilogue becomes header for the initial free block, extendHeap creates
-    // new epilogue
-    freeList = extendHeap(CHUNK_SIZE / WORD_SIZE);
-
-    if (freeList == NULL) {
+    // extendHeap inserts the free block into freeList
+    if (extendHeap(CHUNK_SIZE / WORD_SIZE) == -1) {
         DEBUG("Failed to create the first free block");
         return -1;
     }
 
-    // Initialize empty free list
-    PUT_NEXT_FREE(freeList, NULL);
-    PUT_PREV_FREE(freeList, NULL);
-
-    heapList = freeList;
     DEBUG("Finished initializing memory");
-    return (int)heapList;
+    return (int)freeList;
 }
 
 /**
@@ -556,18 +552,11 @@ static void removeFreeBlock(Byte* fp) {
         freeList = next;
     }
 
-    if (prev && next) {
-        LINK_FREE(prev, next);
-    } else if (prev) {
-        PUT_NEXT_FREE(prev, NULL);
-    } else if (next) {
-        PUT_PREV_FREE(next, NULL);
-    }
-
+    LINK_FREE(prev, next);
     DEBUG("Removed free block %p", fp);
 }
 
-static Byte *extendHeap(size_t numNeededWords) {
+static int extendHeap(size_t numNeededWords) {
     DEBUG("Extending heap with %d words", numNeededWords);
 
     if (numNeededWords % 2 == 1) {
@@ -583,18 +572,16 @@ static Byte *extendHeap(size_t numNeededWords) {
 
     if (fp == (void *)-1) {
         DEBUG("Failed mem_sbrk to extend heap");
-        return NULL;
+        return -1;
     }
 
     REDO_HEADERS(fp, size, 0);                          // Override old epilogue with new header
     PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));   // New epilogue
 
-    LINK_FREE(fp, freeList);
-    PUT_PREV_FREE(fp, NULL);
-    freeList = fp;
-
-    DEBUG("Extended heap to make new block");
-    return fp;
+    // Inserts fp into freeList
+    mm_free(fp);
+    DEBUG("Extended heap to make new block and inserted into freeList");
+    return 0;
 }
 
 static void place(Byte *fp, Word size) {
