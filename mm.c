@@ -295,13 +295,12 @@ static Byte *extendHeap(size_t numNeededWords);
  * byte alignment and minimum block size.
  * @param fp Pointer to the start of a free block's data.
  * @param size The size of the block that must be allocated.
- * @returns 0 on a success, -1 on failure.
  */
-static int place(Byte *fp, Word size);
+static void place(Byte *fp, Word size);
 
 /**
  * Finds a free block that can fit an allocated block of the given size.
- * @param size The size of the block that must be allocated.
+ * @param size The size of the block's data in bytes that must be allocated.
  * @returns Pointer to the start of a free block's data, if one exists of the
  * needed size.  Else returns null.
  */
@@ -348,47 +347,35 @@ int mm_init(void) {
     return (int)heapList;
 }
 
-/*
- * mm_malloc - Allocate a block with at least size bytes of payload
+/**
+ * Allocate a block of at least the given size.
+ * @param size The minimum size of the block's data in bytes.
+ * @returns A pointer to the start of the block's data.
  */
-/* $begin mmmalloc */
-void *mm_malloc(size_t size)
-{
-    size_t asize;      /* adjusted block size */
-    size_t extendsize; /* amount to extend heap if no fit */
-    char *bp;
-    //    printf("call mm_malloc\n");
-
-    /* Ignore spurious requests */
-    if (size <= 0)
-        return NULL;
-
-    /* Adjust block size to include overhead and alignment reqs. */
-    if (size <= WSIZE)
-        asize = WSIZE + OVERHEAD;
-    else
-        asize = DSIZE * ((size + (OVERHEAD) + (DSIZE-1)) / DSIZE);
-    //printf("asize = %d\n", asize);
-
-    /* Search the free list for a fit */
-    if ((bp = find_fit(asize)) != NULL) {
-        place(bp, asize);
-        return bp;
-    }
-
-    /* No fit found. Get more memory and place the block */
-    extendsize = MAX(asize,CHUNKSIZE);
-     //printf("extendsize = %d\n", extendsize);
-    if ((bp = extend_heap(extendsize/WSIZE)) == NULL) {
-        printf("mm_malloc = NULL\n");
+void* mm_malloc(size_t size) {
+    if (size <= 0) {
         return NULL;
     }
-    //printf("return address = %p\n", bp);
-    place(bp, asize);
-    //mm_checkheap(1);
-    return bp;
+
+    size = ALIGN_BYTES(size);
+    Byte* fp = findFit(size);
+
+    if (fp != NULL) {
+        place(fp, size);
+        return fp;
+    }
+
+    // No available blocks; extend heap to get more
+    fp = extendHeap(MAX(size, CHUNK_SIZE) / WORD_SIZE);
+
+    if (fp == NULL) {
+        DEBUG("Failed to extend memory by %d bytes", size);
+        return NULL;
+    }
+
+    place(fp, size);
+    return fp;
 }
-/* $end mmmalloc */
 
 /**
  * Frees the given block by adding it to the free list.
@@ -396,18 +383,20 @@ void *mm_malloc(size_t size)
  */
 void mm_free(void *bp) {
     Word size = GET_SIZE(bp);
+    REDO_HEADERS(bp, size, 0);
 
     if (GET_PREV_ALLOC(bp) == 0) {
+        // Coalesce with previous
         bp = GET_PREV_BLOCK(bp);
         size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
         removeFreeBlock(bp);
-        // LINK_FREE(GET_PREV_FREE(bp), GET_NEXT_FREE(bp));  TODO: adapt to remove with caution for removing head
     }
 
     Byte* nextHeader = GET_NEXT_HEADER(bp);
 
     if (GET_ALLOC_FROM_HEADER(nextHeader) == 0) {
+        // Coalesce with next
         size += GET_SIZE_FROM_HEADER(nextHeader) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
         removeFreeBlock(nextHeader + HEADER_SIZE);
@@ -442,52 +431,69 @@ void *mm_realloc(void *ptr, size_t size) {
         return ptr;
     }
 
-    if (size > currentSize) {
-        size_t difference = size - currentSize;
-        Byte* nextBp = GET_NEXT_BLOCK(ptr);
-        size_t gainedInMerge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(nextBp);
+    if (size < currentSize) {
+        size_t leftover = currentSize - size;
 
-        if (GET_ALLOC(nextBp) == 1) {
-            // Next block is not free
-            goto returnNewPointer;
-        }
-
-        if (gainedInMerge < difference) {
-            // Next block is not large enough
-            goto returnNewPointer;
-        }
-
-        if (gainedInMerge == difference) {
-            // Next block is exactly large enough
-            removeFreeBlock(nextBp);
-            REDO_HEADERS(ptr, size, 1);
+        if (leftover < MIN_BLOCK_SIZE) {
+            // Not enough left over to make a new free block
             return ptr;
         }
 
-        return NULL;  // TODO: merge or returnUnchangedPointer
+        REDO_HEADERS(ptr, size, 1);
+        Byte* newFp = GET_NEXT_BLOCK(ptr);
+        REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
+        mm_free(newFp);
+
+        return ptr;
     }
 
-    if (size < currentSize) {
-        // TODO
-        return NULL;
+    size_t difference = size - currentSize;
+    Byte* nextBp = GET_NEXT_BLOCK(ptr);
+    size_t gainedInMerge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(nextBp);
+
+    if (GET_ALLOC(nextBp) == 1 || gainedInMerge < difference) {
+        // Next block is not free or next block is not large enough
+        Byte* newPtr = mm_malloc(size);
+
+        // Copy old data over
+        Byte* newPtrIterator = newPtr;
+        Byte* oldPtrIterator = ptr;
+        Byte* stoppingPoint = oldPtrIterator + MIN(currentSize, size);
+
+        while (oldPtrIterator != stoppingPoint) {
+            (*newPtrIterator) = (*oldPtrIterator);
+            newPtrIterator++;
+            oldPtrIterator++;
+        }
+
+        mm_free(ptr);
+        return newPtr;
     }
 
-returnNewPointer:
-    Byte* newPtr = mm_malloc(size);
+    size_t leftover = gainedInMerge - difference;
 
-    // Copy old data over
-    Byte* newPtrIterator = newPtr;
-    Byte* oldPtrIterator = ptr;
-    Byte* stoppingPoint = oldPtrIterator + MIN(currentSize, size);
-
-    while (oldPtrIterator != stoppingPoint) {
-        (*newPtrIterator) = (*oldPtrIterator);
-        newPtrIterator++;
-        oldPtrIterator++;
+    if (leftover == 0) {
+        // Next block is exactly large enough
+        removeFreeBlock(nextBp);
+        REDO_HEADERS(ptr, size, 1);
+        return ptr;
     }
 
-    mm_free(ptr);
-    return newPtr;
+    if (leftover < MIN_BLOCK_SIZE) {
+        // There is not enough leftovers to create a new free block
+        size = currentSize + gainedInMerge;
+        removeFreeBlock(nextBp);
+        REDO_HEADERS(ptr, size, 1);
+        return ptr;
+    }
+
+    removeFreeBlock(nextBp);
+    REDO_HEADERS(ptr, size, 1);
+    Byte* newFp = GET_NEXT_BLOCK(ptr);
+    REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
+    mm_free(newFp);
+
+    return ptr;
 }
 
 // /*
@@ -556,27 +562,31 @@ static Byte *extendHeap(size_t numNeededWords) {
     return fp;
 }
 
-/*
- * place - Place block of asize bytes at start of free block bp
- *         and split if remainder would be at least minimum block size
- */
-/* $begin mmplace */
-/* $begin mmplace-proto */
-static void place(void *bp, size_t asize)
-/* $end mmplace-proto */
-{
-    size_t csize = GET_SIZE(HDRP(bp));
-    // printf("csize = %d\n", csize);
+static void place(Byte *fp, Word size) {
+    removeFreeBlock(fp);
+    size = ALIGN_BYTES(size);
 
-    if ((csize - asize) >= (DSIZE)) {  // TODO: new min
-        PUT(HDRP(bp), PACK(asize, 0));  // TODO: swap 0 1
-        bp = NEXT_BLKP(bp);
-        PUT(HDRP(bp), PACK(csize-asize, 1));  // TODO: swap 0 1
+    size_t availableSize = GET_SIZE(fp);
+    size_t difference = availableSize - size;
+
+    if (difference == 0) {
+        // No adjustment needed
+        REDO_HEADERS(fp, size, 1);
+        return;
+    } else if (difference < MIN_BLOCK_SIZE) {
+        // Not enough space to make a new block; grow to absorb leftovers
+        size = availableSize;
+        REDO_HEADERS(fp, size, 1);
+        return;
     } else {
-        PUT(HDRP(bp), PACK(csize, 0));  // TODO: swap 0 1
+        // Create new free block
+        REDO_HEADERS(fp, size, 1);
+        Word* newFp = GET_NEXT_BLOCK(fp);
+        REDO_HEADERS(newFp, difference - HEADER_SIZE - BOUNDARY_SIZE, 0);
+        mm_free(newFp);
     }
+
 }
-/* $end mmplace */
 
 static Byte *findFit(Word size) {
     if (freeList == NULL) {
@@ -594,17 +604,30 @@ static Byte *findFit(Word size) {
     return NULL;
 }
 
-static void printblock(void *bp)
-{
-        size_t hsize, halloc;
+static void printBlock(Byte *bp) {
+    Word size = GET_SIZE(bp);
+    Word alloc = GET_ALLOC(bp);
 
-        hsize = GET_SIZE(HDRP(bp));
-        halloc = GET_ALLOC(HDRP(bp));
+    if (size == 0 && alloc) {
+        printf("%p is a prologue/epilogue", bp);
+        return;
+    }
 
-        if (hsize == 0) {
-            printf("%p: EOL\n", bp);
-            return;
-        }
+    if (size == 0) {
+        printf("%p is malformed (free w/ size = 0)", bp);
+        return;
+    }
 
-        printf("%p: header: [%zu:%c]\n", bp, hsize, (halloc ? 'f' : 'a'));
+    if (alloc) {
+        printf("%p is allocated with size %d", bp, size);
+        return;
+    }
+
+    printf(
+        "%p is free with size %d.  The next free block is %p and the previous %p",
+        bp,
+        size,
+        GET_NEXT_FREE(bp),
+        GET_PREV_FREE(bp)
+    );
 }
