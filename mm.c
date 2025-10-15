@@ -471,7 +471,10 @@ void* mm_realloc(void* ptr, size_t size)
         Byte* newPtr = mm_malloc(size);
 
         // Copy old data over
-        memcpy(newPtr, ptr, currentSize);
+        memcpy(newPtr, ptr, currentSize);  // TODO: ask about memcpy
+
+        // Version not using memcpy, in case memcpy is one of the restricted
+        // functions we can't use:
         // Byte* newPtrIterator = newPtr;
         // Byte* oldPtrIterator = ptr;
         // Byte* stoppingPoint = oldPtrIterator + currentSize;
