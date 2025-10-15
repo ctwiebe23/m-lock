@@ -598,7 +598,7 @@ static Byte* findFit(Word size)
 
     size = ALIGN_BYTES(size);
 
-    Word* fp = freeList;
+    Byte* fp = freeList;
     for (; fp != NULL; fp = GET_NEXT_FREE(fp)) {
         if (GET_SIZE(fp) >= size) {
             DEBUG("Found pointer %p", fp);
