@@ -327,16 +327,17 @@ int mm_init(void) {
     DEBUG("Initializing memory");
     
     // Allocate initial heap
-    Byte* heapList = mem_sbrk(BOUNDARY_SIZE + HEADER_SIZE);
+    Word* heapList = mem_sbrk(WORD_SIZE * 4);
 
     if (heapList == NULL) {
         DEBUG("Failed initial mem_sbrk");
         return -1;
     }
 
-    PUT_WORD(heapList, PACK_HEADER(0, 1));  // Prologue boundary tag
-    heapList += WORD_SIZE;
-    PUT_WORD(heapList, PACK_HEADER(0, 1));  // Epilogue header
+    PUT_WORD(heapList++, KEY);
+    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue header
+    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue boundary tag
+    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Epilogue header
 
     // extendHeap inserts the free block into freeList
     if (extendHeap(CHUNK_SIZE / WORD_SIZE) == -1) {
