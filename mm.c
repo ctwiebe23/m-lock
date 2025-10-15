@@ -230,7 +230,7 @@ typedef char    Byte;   // A byte.  8 bits.
  * @returns val.
  */
 #define PUT_NEXT_FREE(fp, val) \
-    (GET_NEXT_FREE(fp) = (val))
+    (GET_NEXT_FREE(fp) = (Byte*)(val))
 
 /**
  * @param fp Pointer to the start of a free block's data.
@@ -238,7 +238,7 @@ typedef char    Byte;   // A byte.  8 bits.
  * @returns val.
  */
 #define PUT_PREV_FREE(fp, val) \
-    (GET_PREV_FREE(fp) = (val))
+    (GET_PREV_FREE(fp) = (Byte*)(val))
 
 /**
  * @param bytes The original number of bytes.
@@ -272,8 +272,7 @@ typedef char    Byte;   // A byte.  8 bits.
 
 // ---[ GLOBALS ]--------------------------------------------------------------
 
-static Word *freeList;  // Pointer to the data of the first block of the free list
-static Byte *heapList;  // Pointer to the data of the first block of the heap // TODO: remove?
+static Byte *freeList;  // Pointer to the data of the first block of the free list
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -282,7 +281,7 @@ static Byte *heapList;  // Pointer to the data of the first block of the heap //
  * prev pointers.
  * @param fp Pointer to the start of a free block's data.
  */
-static void removeFreeBlock(Word* fp);
+static void removeFreeBlock(Byte* fp);
 
 /**
  * Extends the heap with a new free block and returns a pointer to its data.
@@ -322,7 +321,7 @@ static void printBlock(Byte *bp);  // TODO: remove?
  */
 int mm_init(void) {
     // Allocate initial heap
-    heapList = mem_sbrk(BOUNDARY_SIZE + HEADER_SIZE);
+    Byte* heapList = mem_sbrk(BOUNDARY_SIZE + HEADER_SIZE);
 
     if (heapList == NULL) {
         return -1;
@@ -522,9 +521,9 @@ void *mm_realloc(void *ptr, size_t size) {
 //         printf("Bad epilogue header\n");
 // }
 
-static void removeFreeBlock(Word* fp) {
-    Word* next = GET_NEXT_FREE(fp);
-    Word* prev = GET_PREV_FREE(fp);
+static void removeFreeBlock(Byte* fp) {
+    Byte* next = GET_NEXT_FREE(fp);
+    Byte* prev = GET_PREV_FREE(fp);
 
     if (fp == freeList) {
         freeList = next;
