@@ -30,6 +30,8 @@
  * 
  * This program expects to be ran on a 32-bit machine, and will not work
  * properly otherwise.
+ * 
+ * // TODO: heap
  */
 
 #include <stdio.h>
@@ -99,7 +101,7 @@ typedef char    Byte;   // A byte.  8 bits.
  * @returns The smaller of x and y.
  */
 #define MIN(x, y) \
-    ((x) < (y) ? (x) : (y))
+    ((x) < (y) ? (x) : (y)) // TODO: remove
 
 /**
  * @param size The aligned size of the block's data in bytes.
@@ -271,7 +273,7 @@ typedef char    Byte;   // A byte.  8 bits.
 // ---[ GLOBALS ]--------------------------------------------------------------
 
 static Word *freeList;  // Pointer to the data of the first block of the free list
-static Byte *heapList;  // Pointer to the data of the first block of the heap
+static Byte *heapList;  // Pointer to the data of the first block of the heap // TODO: remove?
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -310,7 +312,7 @@ static Byte *findFit(Word size);
  * Prints the given block to the STDOUT.
  * @param bp Pointer to the start of a block's data.
  */
-static void printBlock(Byte *bp);
+static void printBlock(Byte *bp);  // TODO: remove?
 
 // ---[ FUNCTIONS ]------------------------------------------------------------
 
@@ -435,10 +437,11 @@ void *mm_realloc(void *ptr, size_t size) {
         size_t leftover = currentSize - size;
 
         if (leftover < MIN_BLOCK_SIZE) {
-            // Not enough left over to make a new free block
+            // Not enough leftovers to make a new free block
             return ptr;
         }
 
+        // Create new free block from leftovers
         REDO_HEADERS(ptr, size, 1);
         Byte* newFp = GET_NEXT_BLOCK(ptr);
         REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
@@ -447,18 +450,18 @@ void *mm_realloc(void *ptr, size_t size) {
         return ptr;
     }
 
-    size_t difference = size - currentSize;
+    size_t needed = size - currentSize;
     Byte* nextBp = GET_NEXT_BLOCK(ptr);
     size_t gainedInMerge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(nextBp);
 
-    if (GET_ALLOC(nextBp) == 1 || gainedInMerge < difference) {
+    if (GET_ALLOC(nextBp) == 1 || gainedInMerge < needed) {
         // Next block is not free or next block is not large enough
         Byte* newPtr = mm_malloc(size);
 
         // Copy old data over
         Byte* newPtrIterator = newPtr;
         Byte* oldPtrIterator = ptr;
-        Byte* stoppingPoint = oldPtrIterator + MIN(currentSize, size);
+        Byte* stoppingPoint = oldPtrIterator + currentSize;
 
         while (oldPtrIterator != stoppingPoint) {
             (*newPtrIterator) = (*oldPtrIterator);
@@ -470,24 +473,24 @@ void *mm_realloc(void *ptr, size_t size) {
         return newPtr;
     }
 
-    size_t leftover = gainedInMerge - difference;
+    // Next block can be merged into
+    removeFreeBlock(nextBp);
+    size_t leftover = gainedInMerge - needed;
 
     if (leftover == 0) {
-        // Next block is exactly large enough
-        removeFreeBlock(nextBp);
+        // Next block was exactly large enough
         REDO_HEADERS(ptr, size, 1);
         return ptr;
     }
 
     if (leftover < MIN_BLOCK_SIZE) {
-        // There is not enough leftovers to create a new free block
+        // Not enough leftovers to create a new free block; absorb it entirely
         size = currentSize + gainedInMerge;
-        removeFreeBlock(nextBp);
         REDO_HEADERS(ptr, size, 1);
         return ptr;
     }
 
-    removeFreeBlock(nextBp);
+    // Create new free block from leftovers
     REDO_HEADERS(ptr, size, 1);
     Byte* newFp = GET_NEXT_BLOCK(ptr);
     REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
