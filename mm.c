@@ -60,18 +60,17 @@ team_t team = {
 
 /**
  * Prints the given debug message.
- * @param templateString The template string passed to printf.
- * @param __VA_ARGS__ Other arguments passed to printf.
+ * @param __VA_ARGS__ Arguments passed to printf.
  */
-#define DEBUG(templateString, ...) \
+#define DEBUG(...) \
     do { \
         printf("%s %3d ### ", __FILE__, __LINE__); \
-        printf(templateString, __VA_ARGS__); \
+        printf(__VA_ARGS__); \
     } while (0);
 
 #else
 
-#define DEBUG(templateString, ...)
+#define DEBUG(...)
 
 #endif
 
@@ -320,10 +319,13 @@ static void printBlock(Byte *bp);  // TODO: remove?
  * @returns Pointer to the start of the heap on a success, else -1.
  */
 int mm_init(void) {
+    DEBUG("Initializing memory");
+    
     // Allocate initial heap
     Byte* heapList = mem_sbrk(BOUNDARY_SIZE + HEADER_SIZE);
 
     if (heapList == NULL) {
+        DEBUG("Failed initial mem_sbrk");
         return -1;
     }
 
@@ -336,6 +338,7 @@ int mm_init(void) {
     freeList = extendHeap(CHUNK_SIZE / WORD_SIZE);
 
     if (freeList == NULL) {
+        DEBUG("Failed to create the first free block");
         return -1;
     }
 
@@ -344,7 +347,7 @@ int mm_init(void) {
     PUT_PREV_FREE(freeList, NULL);
 
     heapList = freeList;
-
+    DEBUG("Finished initializing memory");
     return (int)heapList;
 }
 
@@ -354,7 +357,10 @@ int mm_init(void) {
  * @returns A pointer to the start of the block's data.
  */
 void* mm_malloc(size_t size) {
+    DEBUG("Starting malloc of size %d", size);
+
     if (size <= 0) {
+        DEBUG("Can't malloc of size %d", size);
         return NULL;
     }
 
@@ -363,6 +369,7 @@ void* mm_malloc(size_t size) {
 
     if (fp != NULL) {
         place(fp, size);
+        DEBUG("Placed block at %p", fp);
         return fp;
     }
 
@@ -375,6 +382,7 @@ void* mm_malloc(size_t size) {
     }
 
     place(fp, size);
+    DEBUG("Malloced extended block of size %d at pointer %p", size, fp);
     return fp;
 }
 
@@ -383,11 +391,14 @@ void* mm_malloc(size_t size) {
  * @param bp Pointer to the start of a block's data.
  */
 void mm_free(void *bp) {
+    DEBUG("Freeing pointer %p", bp);
+
     Word size = GET_SIZE(bp);
     REDO_HEADERS(bp, size, 0);
 
     if (GET_PREV_ALLOC(bp) == 0) {
         // Coalesce with previous
+        DEBUG("Coelescing with prev");
         bp = GET_PREV_BLOCK(bp);
         size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
@@ -398,6 +409,7 @@ void mm_free(void *bp) {
 
     if (GET_ALLOC_FROM_HEADER(nextHeader) == 0) {
         // Coalesce with next
+        DEBUG("Coelescing with next");
         size += GET_SIZE_FROM_HEADER(nextHeader) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
         removeFreeBlock(nextHeader + HEADER_SIZE);
@@ -407,6 +419,8 @@ void mm_free(void *bp) {
     LINK_FREE(bp, freeList);
     PUT_PREV_FREE(bp, NULL);
     freeList = bp;
+
+    DEBUG("Finished freeing pointer %p", bp);
 }
 
 /**
@@ -416,11 +430,15 @@ void mm_free(void *bp) {
  * @returns The new pointer.
  */
 void *mm_realloc(void *ptr, size_t size) {
+    DEBUG("Reallocating pointer %p to size %d", ptr, size);
+
     if (ptr == NULL) {
+        DEBUG("Making new pointer");
         return mm_malloc(size);
     }
 
     if (size == 0) {
+        DEBUG("Freeing pointer %p", ptr);
         mm_free(ptr);
         return NULL;
     }
@@ -429,6 +447,7 @@ void *mm_realloc(void *ptr, size_t size) {
     Word currentSize = GET_SIZE(ptr);
 
     if (size == currentSize) {
+        DEBUG("No change needed");
         return ptr;
     }
 
@@ -437,6 +456,7 @@ void *mm_realloc(void *ptr, size_t size) {
 
         if (leftover < MIN_BLOCK_SIZE) {
             // Not enough leftovers to make a new free block
+            DEBUG("Too few leftovers, no change needed");
             return ptr;
         }
 
@@ -446,6 +466,7 @@ void *mm_realloc(void *ptr, size_t size) {
         REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
         mm_free(newFp);
 
+        DEBUG("Shrunk and created new free block");
         return ptr;
     }
 
@@ -469,6 +490,7 @@ void *mm_realloc(void *ptr, size_t size) {
         }
 
         mm_free(ptr);
+        DEBUG("Made new pointer entirely");
         return newPtr;
     }
 
@@ -479,6 +501,7 @@ void *mm_realloc(void *ptr, size_t size) {
     if (leftover == 0) {
         // Next block was exactly large enough
         REDO_HEADERS(ptr, size, 1);
+        DEBUG("Absorb next block");
         return ptr;
     }
 
@@ -486,6 +509,7 @@ void *mm_realloc(void *ptr, size_t size) {
         // Not enough leftovers to create a new free block; absorb it entirely
         size = currentSize + gainedInMerge;
         REDO_HEADERS(ptr, size, 1);
+        DEBUG("Expand and absorb next block");
         return ptr;
     }
 
@@ -495,6 +519,7 @@ void *mm_realloc(void *ptr, size_t size) {
     REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
     mm_free(newFp);
 
+    DEBUG("Absorbed part of next block and created new free block");
     return ptr;
 }
 
@@ -522,6 +547,7 @@ void *mm_realloc(void *ptr, size_t size) {
 // }
 
 static void removeFreeBlock(Byte* fp) {
+    DEBUG("Removing free block %p", fp);
     Byte* next = GET_NEXT_FREE(fp);
     Byte* prev = GET_PREV_FREE(fp);
 
@@ -536,9 +562,13 @@ static void removeFreeBlock(Byte* fp) {
     } else if (next) {
         PUT_PREV_FREE(next, NULL);
     }
+
+    DEBUG("Removed free block %p", fp);
 }
 
 static Byte *extendHeap(size_t numNeededWords) {
+    DEBUG("Extending heap with %d words", numNeededWords);
+
     if (numNeededWords % 2 == 1) {
         numNeededWords += 1;
     }
@@ -551,6 +581,7 @@ static Byte *extendHeap(size_t numNeededWords) {
     Byte *fp = mem_sbrk(size + BOUNDARY_SIZE + HEADER_SIZE);
 
     if (fp == (void *)-1) {
+        DEBUG("Failed mem_sbrk to extend heap");
         return NULL;
     }
 
@@ -561,10 +592,13 @@ static Byte *extendHeap(size_t numNeededWords) {
     PUT_PREV_FREE(fp, NULL);
     freeList = fp;
 
+    DEBUG("Extended heap to make new block");
     return fp;
 }
 
 static void place(Byte *fp, Word size) {
+    DEBUG("Placing a block of size %d at pointer %p", size, fp);
+
     removeFreeBlock(fp);
     size = ALIGN_BYTES(size);
 
@@ -574,24 +608,31 @@ static void place(Byte *fp, Word size) {
     if (difference == 0) {
         // No adjustment needed
         REDO_HEADERS(fp, size, 1);
+        DEBUG("Placed block");
         return;
-    } else if (difference < MIN_BLOCK_SIZE) {
+    }
+    
+    if (difference < MIN_BLOCK_SIZE) {
         // Not enough space to make a new block; grow to absorb leftovers
         size = availableSize;
         REDO_HEADERS(fp, size, 1);
+        DEBUG("Expanded and placed block");
         return;
-    } else {
-        // Create new free block
-        REDO_HEADERS(fp, size, 1);
-        Word* newFp = GET_NEXT_BLOCK(fp);
-        REDO_HEADERS(newFp, difference - HEADER_SIZE - BOUNDARY_SIZE, 0);
-        mm_free(newFp);
     }
 
+    // Create new free block
+    REDO_HEADERS(fp, size, 1);
+    Word* newFp = GET_NEXT_BLOCK(fp);
+    REDO_HEADERS(newFp, difference - HEADER_SIZE - BOUNDARY_SIZE, 0);
+    mm_free(newFp);
+    DEBUG("Placed block and made new free block from leftovers");
 }
 
 static Byte *findFit(Word size) {
+    DEBUG("Searching for free block of size %d", size);
+
     if (freeList == NULL) {
+        DEBUG("Free list is empty");
         return NULL;
     }
 
@@ -600,10 +641,12 @@ static Byte *findFit(Word size) {
     Word* fp = freeList;
     for (; fp != NULL; fp = GET_NEXT_FREE(fp)) {
         if (GET_SIZE(fp) >= size) {
+            DEBUG("Found pointer %p", fp);
             return fp;
         }
     }
 
+    DEBUG("Found no block large enough");
     return NULL;
 }
 
