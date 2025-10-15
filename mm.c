@@ -597,7 +597,8 @@ static Byte *findFit(Word size) {
 
     size = ALIGN_BYTES(size);
 
-    for (Word* fp = freeList; fp != NULL; fp = GET_NEXT_FREE(fp)) {
+    Word* fp = freeList;
+    for (; fp != NULL; fp = GET_NEXT_FREE(fp)) {
         if (GET_SIZE(fp) >= size) {
             return fp;
         }
