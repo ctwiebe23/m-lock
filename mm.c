@@ -66,6 +66,7 @@ team_t team = {
     do { \
         printf("%s %3d ### ", __FILE__, __LINE__); \
         printf(__VA_ARGS__); \
+        printf("\n"); \
     } while (0);
 
 #else
