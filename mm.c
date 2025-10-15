@@ -266,11 +266,13 @@ typedef char    Byte;   // A byte.  8 bits.
  */
 #define LINK_FREE(fp1, fp2) \
     do { \
-        if (fp1) { \
-            PUT_NEXT_FREE(fp1, fp2); \
-        } \
-        if (fp2) { \
-            PUT_PREV_FREE(fp2, fp1); \
+        if (fp1 != fp2) { \
+            if (fp1) { \
+                PUT_NEXT_FREE(fp1, fp2); \
+            } \
+            if (fp2) { \
+                PUT_PREV_FREE(fp2, fp1); \
+            } \
         } \
     } while (0);
 
