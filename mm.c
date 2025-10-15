@@ -283,11 +283,10 @@ static void removeFreeBlock(Byte* fp);
 
 /**
  * Extends the heap with a new free block and inserts it into the free list.
- * @param numNeededWords The number of words that need to be in the block's
- * data.
+ * @param size The number of bytes that need to be in the block's data.
  * @returns 0 on success, -1 on failure.
  */
-static int extendHeap(size_t numNeededWords);
+static int extendHeap(size_t size);
 
 /**
  * Place an allocated block of at least the given size at the given free block.
@@ -331,7 +330,7 @@ int mm_init(void)
     PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Epilogue header
 
     // extendHeap inserts the free block into freeList
-    if (extendHeap(CHUNK_SIZE / WORD_SIZE) == -1) {
+    if (extendHeap(CHUNK_SIZE) == -1) {
         DEBUG("Failed to create the first free block");
         return -1;
     }
@@ -364,7 +363,7 @@ void* mm_malloc(size_t size)
     }
 
     // No available blocks; extend heap to get more
-    if (extendHeap(MAX(size, CHUNK_SIZE) / WORD_SIZE) == -1) {
+    if (extendHeap(MAX(size, CHUNK_SIZE)) == -1) {
         DEBUG("Failed to extend memory by %d bytes", size);
         return NULL;
     }
@@ -530,23 +529,15 @@ static void removeFreeBlock(Byte* fp)
     DEBUG("Removed free block %p", fp);
 }
 
-static int extendHeap(size_t numNeededWords)
+static int extendHeap(size_t size)
 {
-    DEBUG("Extending heap with %d words", numNeededWords);
+    DEBUG("Extending heap with %d bytes", size);
 
-    if (numNeededWords % 2 == 1) {
-        numNeededWords += 1;
-    }
-
-    // Assuming numNeedWords was originally > 0, we know it now has a minimum
-    // value of two, so we don't need to make an additional check to confirm
-    // it reaches the minimum block size.
-
-    Word size = numNeededWords * WORD_SIZE;
+    size = ALIGN_BYTES(size);
     Byte* fp = mem_sbrk(size + BOUNDARY_SIZE + HEADER_SIZE);
 
     if (fp == (void*)-1) {
-        DEBUG("Failed mem_sbrk to extend heap");
+        DEBUG("mem_sbrk failed to extend heap");
         return -1;
     }
 
