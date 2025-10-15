@@ -324,6 +324,7 @@ static void printBlock(Byte *bp);  // TODO: remove?
  * @returns Pointer to the start of the heap on a success, else -1.
  */
 int mm_init(void) {
+    DEBUG("");
     DEBUG("Initializing memory");
     
     // Allocate initial heap
@@ -335,7 +336,6 @@ int mm_init(void) {
     }
 
     PUT_WORD(heapList++, KEY);
-    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue header
     PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue boundary tag
     PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Epilogue header
 
