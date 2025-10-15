@@ -58,8 +58,6 @@ team_t team = {
     "M-LOCK",                   // Team name
     "Carston Wiebe",            // My name
     "cwiebe3@huskers.unl.edu",  // My email address
-    "",                         // No teamate
-    ""                          // No teamate
 };
 
 // ---[ CONFIG ]---------------------------------------------------------------
