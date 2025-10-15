@@ -3,35 +3,48 @@
  * FILE     : mm.c
  * AUTHOR   : Carston Wiebe
  * DATE     : OCT 12 2025
- * 
+ *
  * Custom allocator using explicit doubly-linked lists, boundary tags,
  * coalescing, and LIFO insertion.
- * 
+ *
+ * THIS PROGRAM EXPECTS TO BE RAN ON A 32-BIT MACHINE, and will not work
+ * properly otherwise.
+ *
+ * ----------------------------------------------------------------------------
+ *
  * Each block has a one-word header and boundary tag of the form:
- * 
- *    31 30 29  .  .  .  3  2  1  0
- *   +------------------------------+
- *   | s  s  s  .  .  .  s  0  0  a |
- *   +------------------------------+
- * 
+ *
+ *                        31 30 29  .  .  .  3  2  1  0
+ *                      +-------------------------------+
+ *                      |  s  s  s  .  .  .  s  0  0  a |
+ *                      +-------------------------------+
+ *
  * Where s is the size of the block's data in bytes and a is set if the block
  * is allocated.  Blocks are aligned to eight-byte boundaries, which is why the
  * first three bits of the size are inconsequential.
- * 
+ *
  * For free blocks, the first two words of the payload will be pointers to the
  * data of the next free block and the previous free block.  Thus, the smallest
  * possible total block size is four words (two words of data/pointers, two
  * words of header/boundary tag).  Data-wise, the smallest possible block is
  * two words.
- * 
+ *
  * The free list is LIFO --- only the "first" node of the list is tracked using
  * a global variable, and new frees will be inserted at the start to become the
  * new head.
- * 
- * This program expects to be ran on a 32-bit machine, and will not work
- * properly otherwise.
- * 
- * // TODO: heap
+ *
+ * The heap has the following form:
+ *
+ *                        word   contents
+ *                      +------+--------------------------+
+ *                      |    1 | padding (key)            |
+ *                      |    2 | prologue header          |
+ *                      |    3 | prologue boundary tag    |
+ *                      |    . | ...                      |
+ *                      |    . | zero or more user blocks |
+ *                      |    . | ...                      |
+ *                      |    n | epilogue header          |
+ *                      +------+--------------------------+
  */
 
 #include <stdio.h>
@@ -52,9 +65,9 @@ team_t team = {
 // ---[ CONFIG ]---------------------------------------------------------------
 
 /**
- * Disable to hide debug messages.
+ * Enables debug messages.  Disable them by commenting out the following line.
  */
-#define ENABLE_DEBUG
+// #define ENABLE_DEBUG
 
 #ifdef ENABLE_DEBUG
 
@@ -96,12 +109,6 @@ typedef char    Byte;   // A byte.  8 bits.
  */
 #define MAX(x, y) \
     ((x) > (y) ? (x) : (y))
-
-/**
- * @returns The smaller of x and y.
- */
-#define MIN(x, y) \
-    ((x) < (y) ? (x) : (y)) // TODO: remove
 
 /**
  * @param size The aligned size of the block's data in bytes.
@@ -278,7 +285,10 @@ typedef char    Byte;   // A byte.  8 bits.
 
 // ---[ GLOBALS ]--------------------------------------------------------------
 
-static Byte *freeList = NULL;  // Pointer to the data of the first block of the free list
+/**
+ * Pointer to the data of the first block of the free list
+ */
+static Byte *freeList = NULL;
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -313,13 +323,7 @@ static void place(Byte *fp, Word size);
  */
 static Byte *findFit(Word size);
 
-/**
- * Prints the given block to the STDOUT.
- * @param bp Pointer to the start of a block's data.
- */
-static void printBlock(Byte *bp);  // TODO: remove?
-
-// ---[ FUNCTIONS ]------------------------------------------------------------
+// ---[ FUNCTION DEFINITIONS ]-------------------------------------------------
 
 /**
  * Initialize the memory manager.
@@ -327,7 +331,7 @@ static void printBlock(Byte *bp);  // TODO: remove?
  */
 int mm_init(void) {
     DEBUG("Initializing memory");
-    
+
     // Allocate initial heap
     Word* heapList = mem_sbrk(WORD_SIZE * 4);
     Word* heapStart = heapList + 2;
@@ -525,29 +529,6 @@ void *mm_realloc(void *ptr, size_t size) {
     return ptr;
 }
 
-// /*
-//  * mm_checkheap - Check the heap for consistency
-//  */
-// void mm_checkheap(int verbose)
-// {
-//     char *bp = heap_listp;
-
-//     if (verbose)
-//         printf("Heap (%p):\n", heap_listp);
-//     if ((GET_SIZE(HDRP(heap_listp)) != DSIZE) || GET_ALLOC(HDRP(heap_listp)))
-//         printf("Bad prologue header\n");
-
-//     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
-//         if (verbose)
-//             printblock(bp);
-//     }
-
-//     if (verbose)
-//         printblock(bp);
-//     if ((GET_SIZE(HDRP(bp)) != 0) || (GET_ALLOC(HDRP(bp))))
-//         printf("Bad epilogue header\n");
-// }
-
 static void removeFreeBlock(Byte* fp) {
     DEBUG("Removing free block %p", fp);
     Byte* next = GET_NEXT_FREE(fp);
@@ -604,7 +585,7 @@ static void place(Byte *fp, Word size) {
         DEBUG("Placed block");
         return;
     }
-    
+
     if (difference < MIN_BLOCK_SIZE) {
         // Not enough space to make a new block; grow to absorb leftovers
         size = availableSize;
@@ -641,32 +622,4 @@ static Byte *findFit(Word size) {
 
     DEBUG("Found no block large enough");
     return NULL;
-}
-
-static void printBlock(Byte *bp) {
-    Word size = GET_SIZE(bp);
-    Word alloc = GET_ALLOC(bp);
-
-    if (size == 0 && alloc) {
-        printf("%p is a prologue/epilogue", bp);
-        return;
-    }
-
-    if (size == 0) {
-        printf("%p is malformed (free w/ size = 0)", bp);
-        return;
-    }
-
-    if (alloc) {
-        printf("%p is allocated with size %d", bp, size);
-        return;
-    }
-
-    printf(
-        "%p is free with size %d.  The next free block is %p and the previous %p",
-        bp,
-        size,
-        GET_NEXT_FREE(bp),
-        GET_PREV_FREE(bp)
-    );
 }
