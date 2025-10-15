@@ -471,15 +471,16 @@ void* mm_realloc(void* ptr, size_t size)
         Byte* newPtr = mm_malloc(size);
 
         // Copy old data over
-        Byte* newPtrIterator = newPtr;
-        Byte* oldPtrIterator = ptr;
-        Byte* stoppingPoint = oldPtrIterator + currentSize;
+        memcpy(newPtr, ptr, currentSize);
+        // Byte* newPtrIterator = newPtr;
+        // Byte* oldPtrIterator = ptr;
+        // Byte* stoppingPoint = oldPtrIterator + currentSize;
 
-        while (oldPtrIterator != stoppingPoint) {
-            (*newPtrIterator) = (*oldPtrIterator);
-            newPtrIterator++;
-            oldPtrIterator++;
-        }
+        // while (oldPtrIterator != stoppingPoint) {
+        //     (*newPtrIterator) = (*oldPtrIterator);
+        //     newPtrIterator++;
+        //     oldPtrIterator++;
+        // }
 
         mm_free(ptr);
         DEBUG("Made new pointer entirely");
