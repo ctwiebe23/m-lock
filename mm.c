@@ -47,19 +47,19 @@
  *                      +------+--------------------------+
  */
 
-#include <stdio.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdlib.h>
 #include "mm.h"
 #include "memlib.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 team_t team = {
-    "M-LOCK",  // Team name
-    "Carston Wiebe",  // My name
+    "M-LOCK",                   // Team name
+    "Carston Wiebe",            // My name
     "cwiebe3@huskers.unl.edu",  // My email address
-    "",  // No teamate
-    ""  // No teamate
+    "",                         // No teamate
+    ""                          // No teamate
 };
 
 // ---[ CONFIG ]---------------------------------------------------------------
@@ -75,11 +75,11 @@ team_t team = {
  * Prints the given debug message.
  * @param __VA_ARGS__ Arguments passed to printf.
  */
-#define DEBUG(...) \
-    do { \
-        printf("%s %3d ### ", __FILE__, __LINE__); \
-        printf(__VA_ARGS__); \
-        printf("\n"); \
+#define DEBUG(...)                                                            \
+    do {                                                                      \
+        printf("%s %3d ### ", __FILE__, __LINE__);                            \
+        printf(__VA_ARGS__);                                                  \
+        printf("\n");                                                         \
     } while (0);
 
 #else
@@ -90,169 +90,151 @@ team_t team = {
 
 // ---[ TYPES ]----------------------------------------------------------------
 
-typedef size_t  Word;   // A word.  32 bits in a 32-bit system.
-typedef char    Byte;   // A byte.  8 bits.
+typedef size_t Word;  // A word; 32 bits in a 32-bit system
+typedef char Byte;    // A byte; 8 bits
 
 // ---[ CONSTANTS ]------------------------------------------------------------
 
-#define WORD_SIZE       4           // Word size in bytes
-#define MIN_DATA_SIZE   8           // Minimum size of block data in bytes
-#define MIN_BLOCK_SIZE  16          // Minimum size of a total block in bytes
-#define CHUNK_SIZE      (1 << 12)   // Initial heap size in bytes
-#define HEADER_SIZE     WORD_SIZE   // Header size in bytes
-#define BOUNDARY_SIZE   WORD_SIZE   // Boundary tag size in bytes
+#define WORD_SIZE      4          // Word size in bytes
+#define MIN_DATA_SIZE  8          // Minimum size of block data in bytes
+#define MIN_BLOCK_SIZE 16         // Minimum size of a total block in bytes
+#define CHUNK_SIZE     (1 << 12)  // Initial heap size in bytes
+#define HEADER_SIZE    WORD_SIZE  // Header size in bytes
+#define BOUNDARY_SIZE  WORD_SIZE  // Boundary tag size in bytes
 
 // ---[ MACROS ]---------------------------------------------------------------
 
 /**
  * @returns The larger of x and y.
  */
-#define MAX(x, y) \
-    ((x) > (y) ? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 /**
  * @param size The aligned size of the block's data in bytes.
  * @param alloc 1 if the block is allocated, else 0.
  * @returns The header/boundary tag.
  */
-#define PACK_HEADER(size, alloc) \
-    ((Word)(size) | (Word)(alloc))
+#define PACK_HEADER(size, alloc) ((Word)(size) | (Word)(alloc))
 
 /**
  * @param p Pointer to a word.
  * @returns The value at p.
  */
-#define GET_WORD(p) \
-    (*(Word *)(p))
+#define GET_WORD(p) (*(Word*)(p))
 
 /**
  * @param p Pointer to a word.
  * @param val The value to put at p.
  * @returns val.
  */
-#define PUT_WORD(p, val) \
-    (GET_WORD(p) = (val))
+#define PUT_WORD(p, val) (GET_WORD(p) = (val))
 
 /**
  * @param p Pointer to a header/boundary tag.
  * @returns The size of the block's data in bytes.
  */
-#define GET_SIZE_FROM_HEADER(p) \
-    (GET_WORD(p) & ~0x7)
+#define GET_SIZE_FROM_HEADER(p) (GET_WORD(p) & ~0x7)
 
 /**
  * @param p Pointer to a header/boundary tag.
  * @returns Whether or not the block is allocated.
  */
-#define GET_ALLOC_FROM_HEADER(p) \
-    (GET_WORD(p) & 0x1)
+#define GET_ALLOC_FROM_HEADER(p) (GET_WORD(p) & 0x1)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the block's header.
  */
-#define GET_HEADER(bp) \
-    ((Byte *)(bp) - HEADER_SIZE)
+#define GET_HEADER(bp) ((Byte*)(bp)-HEADER_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the previous block's boundary tag.
  */
-#define GET_PREV_BOUNDARY(bp) \
-    ((Byte *)(bp) - HEADER_SIZE - BOUNDARY_SIZE)
+#define GET_PREV_BOUNDARY(bp) ((Byte*)(bp)-HEADER_SIZE - BOUNDARY_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns The size of the block's data in bytes.
  */
-#define GET_SIZE(bp) \
-    GET_SIZE_FROM_HEADER(GET_HEADER(bp))
+#define GET_SIZE(bp) GET_SIZE_FROM_HEADER(GET_HEADER(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Whether or not the block is allocated.
  */
-#define GET_ALLOC(bp) \
-    GET_ALLOC_FROM_HEADER(GET_HEADER(bp))
+#define GET_ALLOC(bp) GET_ALLOC_FROM_HEADER(GET_HEADER(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the block's boundary tag.
  */
-#define GET_BOUNDARY(bp) \
-    ((Byte *)(bp) + GET_SIZE(bp))
+#define GET_BOUNDARY(bp) ((Byte*)(bp) + GET_SIZE(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns The size of the previous block's data in bytes.
  */
-#define GET_PREV_SIZE(bp) \
-    GET_SIZE_FROM_HEADER(GET_PREV_BOUNDARY(bp))
+#define GET_PREV_SIZE(bp) GET_SIZE_FROM_HEADER(GET_PREV_BOUNDARY(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Whether or not the previous block is allocated.
  */
-#define GET_PREV_ALLOC(bp) \
-    GET_ALLOC_FROM_HEADER(GET_PREV_BOUNDARY(bp))
+#define GET_PREV_ALLOC(bp) GET_ALLOC_FROM_HEADER(GET_PREV_BOUNDARY(bp))
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the next block's header.
  */
-#define GET_NEXT_HEADER(bp) \
-    ((Byte *)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE)
+#define GET_NEXT_HEADER(bp) ((Byte*)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the next block's data.
  */
-#define GET_NEXT_BLOCK(bp) \
-    ((Byte *)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE)
+#define GET_NEXT_BLOCK(bp)                                                    \
+    ((Byte*)(bp) + GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the previous block's data.
  */
-#define GET_PREV_BLOCK(bp) \
-    ((Byte *)(bp) - HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
+#define GET_PREV_BLOCK(bp)                                                    \
+    ((Byte*)(bp)-HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
 
 /**
  * @param fp Pointer to the start of a free block's data.
  * @returns Pointer to the start of the next free block's data.
  */
-#define GET_NEXT_FREE(fp) \
-    GET_WORD(fp)
+#define GET_NEXT_FREE(fp) GET_WORD(fp)
 
 /**
  * @param fp Pointer to the start of a free block's data.
  * @returns Pointer to the start of the previous free block's data.
  */
-#define GET_PREV_FREE(fp) \
-    GET_WORD((Word *)fp + 1)
+#define GET_PREV_FREE(fp) GET_WORD((Word*)fp + 1)
 
 /**
  * @param fp Pointer to the start of a free block's data.
  * @param val The value to put as the pointer to the next free block.
  * @returns val.
  */
-#define PUT_NEXT_FREE(fp, val) \
-    (GET_NEXT_FREE(fp) = (Byte*)(val))
+#define PUT_NEXT_FREE(fp, val) (GET_NEXT_FREE(fp) = (Byte*)(val))
 
 /**
  * @param fp Pointer to the start of a free block's data.
  * @param val The value to put as the pointer to the previous free block.
  * @returns val.
  */
-#define PUT_PREV_FREE(fp, val) \
-    (GET_PREV_FREE(fp) = (Byte*)(val))
+#define PUT_PREV_FREE(fp, val) (GET_PREV_FREE(fp) = (Byte*)(val))
 
 /**
  * @param bytes The original number of bytes.
  * @returns The adjusted number of bytes that is aligned.
  */
-#define ALIGN_BYTES(bytes) \
-    ((bytes % 8 == 0) ? bytes : 8 * (bytes / 8 + 1))
+#define ALIGN_BYTES(bytes)                                                    \
+    (((bytes) % 8 == 0) ? (bytes) : 8 * ((bytes) / 8 + 1))
 
 /**
  * Redoes the header and boundary tag of the given block.
@@ -260,10 +242,10 @@ typedef char    Byte;   // A byte.  8 bits.
  * @param size The aligned size of the block's data in bytes.
  * @param alloc 1 if the block is allocated, else 0.
  */
-#define REDO_HEADERS(bp, size, alloc) \
-    do { \
-        PUT_WORD(GET_HEADER(bp), PACK_HEADER(size, alloc)); \
-        PUT_WORD(GET_BOUNDARY(bp), PACK_HEADER(size, alloc)); \
+#define REDO_HEADERS(bp, size, alloc)                                         \
+    do {                                                                      \
+        PUT_WORD(GET_HEADER(bp), PACK_HEADER(size, alloc));                   \
+        PUT_WORD(GET_BOUNDARY(bp), PACK_HEADER(size, alloc));                 \
     } while (0);
 
 /**
@@ -271,16 +253,16 @@ typedef char    Byte;   // A byte.  8 bits.
  * @param fp1 Pointer to the start of a free block's data.
  * @param fp2 Pointer to the start of a free block's data.
  */
-#define LINK_FREE(fp1, fp2) \
-    do { \
-        if (fp1 != fp2) { \
-            if (fp1) { \
-                PUT_NEXT_FREE(fp1, fp2); \
-            } \
-            if (fp2) { \
-                PUT_PREV_FREE(fp2, fp1); \
-            } \
-        } \
+#define LINK_FREE(fp1, fp2)                                                   \
+    do {                                                                      \
+        if (fp1 != fp2) {                                                     \
+            if (fp1) {                                                        \
+                PUT_NEXT_FREE(fp1, fp2);                                      \
+            }                                                                 \
+            if (fp2) {                                                        \
+                PUT_PREV_FREE(fp2, fp1);                                      \
+            }                                                                 \
+        }                                                                     \
     } while (0);
 
 // ---[ GLOBALS ]--------------------------------------------------------------
@@ -288,7 +270,7 @@ typedef char    Byte;   // A byte.  8 bits.
 /**
  * Pointer to the data of the first block of the free list
  */
-static Byte *freeList = NULL;
+static Byte* freeList = NULL;
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -301,7 +283,8 @@ static void removeFreeBlock(Byte* fp);
 
 /**
  * Extends the heap with a new free block and inserts it into the free list.
- * @param numNeededWords The number of words that need to be in the block's data.
+ * @param numNeededWords The number of words that need to be in the block's
+ * data.
  * @returns 0 on success, -1 on failure.
  */
 static int extendHeap(size_t numNeededWords);
@@ -313,7 +296,7 @@ static int extendHeap(size_t numNeededWords);
  * @param fp Pointer to the start of a free block's data.
  * @param size The size of the block that must be allocated.
  */
-static void place(Byte *fp, Word size);
+static void place(Byte* fp, Word size);
 
 /**
  * Finds a free block that can fit an allocated block of the given size.
@@ -321,7 +304,7 @@ static void place(Byte *fp, Word size);
  * @returns Pointer to the start of a free block's data, if one exists of the
  * needed size.  Else returns null.
  */
-static Byte *findFit(Word size);
+static Byte* findFit(Word size);
 
 // ---[ FUNCTION DEFINITIONS ]-------------------------------------------------
 
@@ -329,7 +312,8 @@ static Byte *findFit(Word size);
  * Initialize the memory manager.
  * @returns Pointer to the start of the heap on a success, else -1.
  */
-int mm_init(void) {
+int mm_init(void)
+{
     DEBUG("Initializing memory");
 
     // Allocate initial heap
@@ -361,7 +345,8 @@ int mm_init(void) {
  * @param size The minimum size of the block's data in bytes.
  * @returns A pointer to the start of the block's data.
  */
-void* mm_malloc(size_t size) {
+void* mm_malloc(size_t size)
+{
     DEBUG("Starting malloc of size %d", size);
 
     if (size <= 0) {
@@ -396,7 +381,8 @@ void* mm_malloc(size_t size) {
  * Frees the given block by adding it to the free list.
  * @param bp Pointer to the start of a block's data.
  */
-void mm_free(void *bp) {
+void mm_free(void* bp)
+{
     DEBUG("Freeing pointer %p", bp);
 
     Word size = GET_SIZE(bp);
@@ -435,7 +421,8 @@ void mm_free(void *bp) {
  * @param size The new size of the block in bytes.
  * @returns The new pointer.
  */
-void *mm_realloc(void *ptr, size_t size) {
+void* mm_realloc(void* ptr, size_t size)
+{
     DEBUG("Reallocating pointer %p to size %d", ptr, size);
 
     if (ptr == NULL) {
@@ -529,7 +516,8 @@ void *mm_realloc(void *ptr, size_t size) {
     return ptr;
 }
 
-static void removeFreeBlock(Byte* fp) {
+static void removeFreeBlock(Byte* fp)
+{
     DEBUG("Removing free block %p", fp);
     Byte* next = GET_NEXT_FREE(fp);
     Byte* prev = GET_PREV_FREE(fp);
@@ -542,7 +530,8 @@ static void removeFreeBlock(Byte* fp) {
     DEBUG("Removed free block %p", fp);
 }
 
-static int extendHeap(size_t numNeededWords) {
+static int extendHeap(size_t numNeededWords)
+{
     DEBUG("Extending heap with %d words", numNeededWords);
 
     if (numNeededWords % 2 == 1) {
@@ -554,15 +543,15 @@ static int extendHeap(size_t numNeededWords) {
     // it reaches the minimum block size.
 
     Word size = numNeededWords * WORD_SIZE;
-    Byte *fp = mem_sbrk(size + BOUNDARY_SIZE + HEADER_SIZE);
+    Byte* fp = mem_sbrk(size + BOUNDARY_SIZE + HEADER_SIZE);
 
-    if (fp == (void *)-1) {
+    if (fp == (void*)-1) {
         DEBUG("Failed mem_sbrk to extend heap");
         return -1;
     }
 
-    REDO_HEADERS(fp, size, 0);                          // Override old epilogue with new header
-    PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));   // New epilogue
+    REDO_HEADERS(fp, size, 0);  // Override old epilogue with new header
+    PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));  // New epilogue
 
     // Inserts fp into freeList
     mm_free(fp);
@@ -570,7 +559,8 @@ static int extendHeap(size_t numNeededWords) {
     return 0;
 }
 
-static void place(Byte *fp, Word size) {
+static void place(Byte* fp, Word size)
+{
     DEBUG("Placing a block of size %d at pointer %p", size, fp);
 
     removeFreeBlock(fp);
@@ -602,7 +592,8 @@ static void place(Byte *fp, Word size) {
     DEBUG("Placed block and made new free block from leftovers");
 }
 
-static Byte *findFit(Word size) {
+static Byte* findFit(Word size)
+{
     DEBUG("Searching for free block of size %d", size);
 
     if (freeList == NULL) {
