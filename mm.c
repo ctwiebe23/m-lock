@@ -58,6 +58,8 @@ team_t team = {
     "M-LOCK",                   // Team name
     "Carston Wiebe",            // My name
     "cwiebe3@huskers.unl.edu",  // My email address
+    "",                         // No teamate
+    ""                          // No teamate
 };
 
 // ---[ CONFIG ]---------------------------------------------------------------
@@ -388,7 +390,7 @@ void mm_free(void* bp)
 
     if (GET_PREV_ALLOC(bp) == 0) {
         // Coalesce with previous
-        DEBUG("Coelescing with prev");
+        DEBUG("Coalescing with prev");
         bp = GET_PREV_BLOCK(bp);
         size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
@@ -399,7 +401,7 @@ void mm_free(void* bp)
 
     if (GET_ALLOC_FROM_HEADER(nextHeader) == 0) {
         // Coalesce with next
-        DEBUG("Coelescing with next");
+        DEBUG("Coalescing with next");
         size += GET_SIZE_FROM_HEADER(nextHeader) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, 0);
         removeFreeBlock(nextHeader + HEADER_SIZE);
