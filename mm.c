@@ -373,15 +373,16 @@ void* mm_malloc(size_t size) {
     }
 
     // No available blocks; extend heap to get more
-    fp = extendHeap(MAX(size, CHUNK_SIZE) / WORD_SIZE);
-
-    if (fp == NULL) {
+    if (extendHeap(MAX(size, CHUNK_SIZE) / WORD_SIZE) == -1) {
         DEBUG("Failed to extend memory by %d bytes", size);
         return NULL;
     }
 
+    // extendHeap put the result in freeList
+    fp = freeList;
+
     place(fp, size);
-    DEBUG("Malloced extended block of size %d at pointer %p", size, fp);
+    DEBUG("Malloc-ed extended block of size %d at pointer %p", size, fp);
     return fp;
 }
 
