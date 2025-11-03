@@ -1,0 +1,5 @@
+BasedOnStyle: WebKit
+ColumnLimit: 79
+AlignConsecutiveMacros: Consecutive
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 2
