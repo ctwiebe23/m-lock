@@ -1,6 +1,6 @@
 /*
  * PROJECT  : M-LOCK
- * FILE     : mm.c
+ * FILE     : mlock.c
  * AUTHOR   : C Wiebe <ctwiebe23@gmail.com>
  * DATE     : OCT 12 2025
  *
