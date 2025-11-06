@@ -1,33 +1,30 @@
-// #define MLOCK_ENABLE_DEBUG
-#include "mlock.c"
+#include <stdlib.h>
 #include <stdio.h>
 
 #define PATTERN_SIZE 14
 
 int main(void)
 {
-    init_lock();
-
-    int* arr = mlock(sizeof(int) * 10);
+    int* arr = malloc(sizeof(int) * 10);
     for (int i = 0; i < 10; i++) {
         arr[i] = i;
         fprintf(stderr, "%d\n", arr[i]);
     }
 
-    arr = relock(arr, sizeof(int) * 20);
+    arr = realloc(arr, sizeof(int) * 20);
     for (int i = 0; i < 20; i++) {
         arr[i] = i;
         fprintf(stderr, "%d\n", arr[i]);
     }
-    unlock(arr);
+    free(arr);
 
     size_t big_num = (1 << 13);
-    size_t* big_arr = mlock(sizeof(size_t) * big_num);
+    size_t* big_arr = malloc(sizeof(size_t) * big_num);
     for (int i = 0; i < big_num; i += 100) {
         big_arr[i] = i;
         fprintf(stderr, "%ld\n", big_arr[i]);
     }
-    unlock(big_arr);
+    free(big_arr);
 
     for (int i = 0; i < (1 << 20); i++) {
         int pattern[PATTERN_SIZE] = {
@@ -48,10 +45,10 @@ int main(void)
         };
         char* arrs[PATTERN_SIZE] = { NULL };
         for (int k = 0; k < PATTERN_SIZE; k++) {
-            arrs[k] = mlock(sizeof(char) * pattern[k]);
+            arrs[k] = malloc(sizeof(char) * pattern[k]);
         }
         for (int k = 0; k < PATTERN_SIZE; k++) {
-            unlock(arrs[k]);
+            free(arrs[k]);
         }
     }
 

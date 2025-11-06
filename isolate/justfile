@@ -1,8 +1,8 @@
 build:
-  gcc -Wall test.c
+  gcc -Wall test.c -o mlock
 
 test: build
-  ./a.out
+  ./mlock
 
 watch:
   watchexec -e c -- just test
