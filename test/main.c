@@ -7,7 +7,8 @@
     REQUIRED_LONG_ARG(n, "num-loops", "Number of times to loop alloc test")
 
 #define BOOLEAN_ARGS \
-    BOOLEAN_ARG(malloc, "--malloc", "Use the standard library's malloc")
+    BOOLEAN_ARG(malloc, "--malloc", "Use the standard library's malloc") \
+    BOOLEAN_ARG(parallel, "--parallel", "Use mlock and malloc in parallel") \
 
 #include "easyargs.h"
 
@@ -23,6 +24,14 @@ int main(int argc, char** argv)
     void* (*alloc_fn)(size_t size);
     void* (*realloc_fn)(void* ptr, size_t size);
     void (*free_fn)(void* ptr);
+
+    if (args.parallel) {
+        if (fork()) {
+            args.malloc = 1;
+        } else {
+            args.malloc = 0;
+        }
+    }
 
     if (args.malloc) {
         alloc_fn = malloc;
