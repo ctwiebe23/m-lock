@@ -2,13 +2,14 @@
 // #define MLOCK_WORD_SIZE 4
 #include "../src/mlock.c"
 #include <stdio.h>
+#include <time.h>
 
-#define REQUIRED_ARGS \
+#define REQUIRED_ARGS                                                         \
     REQUIRED_LONG_ARG(n, "num-loops", "Number of times to loop alloc test")
 
-#define BOOLEAN_ARGS \
-    BOOLEAN_ARG(malloc, "--malloc", "Use the standard library's malloc") \
-    BOOLEAN_ARG(parallel, "--parallel", "Use mlock and malloc in parallel") \
+#define BOOLEAN_ARGS                                                          \
+    BOOLEAN_ARG(malloc, "--malloc", "Use the standard library's malloc")      \
+    BOOLEAN_ARG(parallel, "--parallel", "Use mlock and malloc in parallel")
 
 #include "easyargs.h"
 
@@ -44,6 +45,8 @@ int main(int argc, char** argv)
 
         init_lock();
     }
+
+    clock_t time = clock();
 
     int* arr = alloc_fn(sizeof(int) * 10);
     for (int i = 0; i < 10; i++) {
@@ -94,6 +97,9 @@ int main(int argc, char** argv)
         }
     }
 
-    fprintf(stderr, "done!\n");
+    time = clock() - time;
+    fprintf(stderr, "done!  %s took %lf seconds\n",
+        (args.malloc) ? "malloc" : "mlock",
+        (double)time / (double)CLOCKS_PER_SEC);
     return 0;
 }

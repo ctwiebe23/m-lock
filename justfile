@@ -5,8 +5,7 @@ build:
 	# gcc -Wall test/main.c bin/mlock.o -o run_test
 
 cmp LOOPS: build
-	./run_test {{LOOPS}}
-	./run_test {{LOOPS}} --malloc
+	./run_test {{LOOPS}} --parallel
 
 clean:
 	[ ! -d bin ] || rm -r bin
