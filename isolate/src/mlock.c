@@ -343,6 +343,7 @@ void* mlock(size_t size)
     }
 
     size = ALIGN_BYTES(size);
+    size = MAX(size, MIN_DATA_SIZE);
     byte_t* fp = find_fit(size);
 
     if (fp != NULL) {
@@ -421,13 +422,14 @@ void* relock(void* ptr, size_t size)
         return mlock(size);
     }
 
-    if (size == 0) {
+    if (size <= 0) {
         DEBUG("Freeing pointer %p", ptr);
         unlock(ptr);
         return NULL;
     }
 
     size = ALIGN_BYTES(size);
+    size = MAX(size, MIN_DATA_SIZE);
     word_t current_size = GET_SIZE(ptr);
 
     if (size == current_size) {
