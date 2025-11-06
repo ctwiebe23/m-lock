@@ -392,7 +392,8 @@ void unlock(void* bp)
         // Coalesce with next
         DEBUG("Coalescing with next");
         DEBUG("Next header %p", next_header);
-        size += GET_SIZE_FROM_HEADER(next_header) + BOUNDARY_SIZE + HEADER_SIZE;
+        size
+            += GET_SIZE_FROM_HEADER(next_header) + BOUNDARY_SIZE + HEADER_SIZE;
         REDO_HEADERS(bp, size, FREE);
         remove_free_block(next_header + HEADER_SIZE);
     }
