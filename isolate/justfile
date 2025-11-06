@@ -1,5 +1,5 @@
 build:
-  gcc -Wall main.c
+  gcc -Wall test.c
 
 test: build
   ./a.out

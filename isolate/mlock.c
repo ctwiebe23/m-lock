@@ -36,16 +36,16 @@
  *
  * The heap has the following form:
  *
- *                        word   contents
- *                      +------+--------------------------+
- *                      |    1 | padding (key)            |
- *                      |    2 | prologue header          |
- *                      |    3 | prologue boundary tag    |
- *                      |    . | ...                      |
- *                      |    . | zero or more user blocks |
- *                      |    . | ...                      |
- *                      |    n | epilogue header          |
- *                      +------+--------------------------+
+ *                       word   contents
+ *                     +------+--------------------------+
+ *                     |    1 | padding (key)            |
+ *                     |    2 | prologue header          |
+ *                     |    3 | prologue boundary tag    |
+ *                     |    . | ...                      |
+ *                     |    . | zero or more user blocks |
+ *                     |    . | ...                      |
+ *                     |    n | epilogue header          |
+ *                     +------+--------------------------+
  */
 
 #include <string.h>  // For memcpy
@@ -61,9 +61,9 @@
  */
 #define DEBUG(...)                                                            \
     do {                                                                      \
-        printf("%s %3d ### ", __FILE__, __LINE__);                            \
-        printf(__VA_ARGS__);                                                  \
-        printf("\n");                                                         \
+        fprintf(stderr, "%s %3d ### ", __FILE__, __LINE__);                   \
+        fprintf(stderr, __VA_ARGS__);                                         \
+        fprintf(stderr, "\n");                                                \
     } while (0);
 #else
 #define DEBUG(...)
@@ -81,6 +81,9 @@ typedef char byte_t;    // A byte; 8 bits
 #else
 #define WORD_SIZE 8 /* Word size in bytes */
 #endif
+
+#define FREE      0  // The block is free
+#define ALLOCATED 1  // The block is allocated
 
 #define MIN_DATA_SIZE  (WORD_SIZE * 2)  // Min size of block data in bytes
 #define MIN_BLOCK_SIZE (WORD_SIZE * 4)  // Min size of a total block in bytes
@@ -131,13 +134,13 @@ typedef char byte_t;    // A byte; 8 bits
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the block's header.
  */
-#define GET_HEADER(bp) ((byte_t*)(bp) - HEADER_SIZE)
+#define GET_HEADER(bp) ((byte_t*)(bp)-HEADER_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the previous block's boundary tag.
  */
-#define GET_PREV_BOUNDARY(bp) ((byte_t*)(bp) - HEADER_SIZE - BOUNDARY_SIZE)
+#define GET_PREV_BOUNDARY(bp) ((byte_t*)(bp)-HEADER_SIZE - BOUNDARY_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
@@ -187,7 +190,7 @@ typedef char byte_t;    // A byte; 8 bits
  * @returns Pointer to the previous block's data.
  */
 #define GET_PREV_BLOCK(bp)                                                    \
-    ((byte_t*)(bp) - HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
+    ((byte_t*)(bp)-HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
 
 /**
  * @param fp Pointer to the start of a free block's data.
@@ -256,7 +259,7 @@ typedef char byte_t;    // A byte; 8 bits
 /**
  * Pointer to the data of the first block of the free list
  */
-static byte_t* freeList = NULL;
+static byte_t* free_list = NULL;
 
 // ---[ HELPER FUNCTION PROTOTYPES ]-------------------------------------------
 
@@ -265,14 +268,14 @@ static byte_t* freeList = NULL;
  * prev pointers.
  * @param fp Pointer to the start of a free block's data.
  */
-static void removeFreeBlock(byte_t* fp);
+static void remove_free_block(byte_t* fp);
 
 /**
  * Extends the heap with a new free block and inserts it into the free list.
  * @param size The number of bytes that need to be in the block's data.
  * @returns 0 on success, -1 on failure.
  */
-static int extendHeap(size_t size);
+static int extend_heap(size_t size);
 
 /**
  * Place an allocated block of at least the given size at the given free block.
@@ -289,7 +292,7 @@ static void place(byte_t* fp, word_t size);
  * @returns Pointer to the start of a free block's data, if one exists of the
  * needed size.  Else returns null.
  */
-static byte_t* findFit(word_t size);
+static byte_t* find_fit(word_t size);
 
 // ---[ FUNCTION DEFINITIONS ]-------------------------------------------------
 
@@ -297,32 +300,32 @@ static byte_t* findFit(word_t size);
  * Initialize the memory manager.
  * @returns Pointer to the start of the heap on a success, else NULL.
  */
-void* initlock(void)
+void* init_lock(void)
 {
     DEBUG("Initializing memory");
 
     // Allocate initial heap
-    word_t* heapList = sbrk(WORD_SIZE * 4);
-    word_t* heapStart = heapList + 2;
+    word_t* heap_list = sbrk(WORD_SIZE * 4);
+    word_t* heap_start = heap_list + 2;
 
-    if (heapList == NULL) {
+    if (heap_list == NULL) {
         DEBUG("Failed initial sbrk");
         return NULL;
     }
 
-    PUT_WORD(heapList++, 0x00DECADE);
-    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue header
-    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Prologue boundary tag
-    PUT_WORD(heapList++, PACK_HEADER(0, 1));  // Epilogue header
+    PUT_WORD(heap_list++, 0x00DECADE);
+    PUT_WORD(heap_list++, PACK_HEADER(0, ALLOCATED));  // Prologue header
+    PUT_WORD(heap_list++, PACK_HEADER(0, ALLOCATED));  // Prologue boundary tag
+    PUT_WORD(heap_list++, PACK_HEADER(0, ALLOCATED));  // Epilogue header
 
-    // extendHeap inserts the free block into freeList
-    if (extendHeap(CHUNK_SIZE) == -1) {
+    // extend_heap inserts the free block into free_list
+    if (extend_heap(CHUNK_SIZE) == -1) {
         DEBUG("Failed to create the first free block");
         return NULL;
     }
 
     DEBUG("Finished initializing memory");
-    return (void*)heapStart;
+    return (void*)heap_start;
 }
 
 /**
@@ -340,7 +343,7 @@ void* mlock(size_t size)
     }
 
     size = ALIGN_BYTES(size);
-    byte_t* fp = findFit(size);
+    byte_t* fp = find_fit(size);
 
     if (fp != NULL) {
         place(fp, size);
@@ -349,13 +352,13 @@ void* mlock(size_t size)
     }
 
     // No available blocks; extend heap to get more
-    if (extendHeap(MAX(size, CHUNK_SIZE)) == -1) {
+    if (extend_heap(MAX(size, CHUNK_SIZE)) == -1) {
         DEBUG("Failed to extend memory by %ld bytes", size);
         return NULL;
     }
 
-    // extendHeap put the result in freeList
-    fp = freeList;
+    // extend_heap put the result in free_list
+    fp = free_list;
 
     place(fp, size);
     DEBUG("Malloc-ed extended block of size %ld at pointer %p", size, fp);
@@ -371,31 +374,33 @@ void unlock(void* bp)
     DEBUG("Freeing pointer %p", bp);
 
     word_t size = GET_SIZE(bp);
-    REDO_HEADERS(bp, size, 0);
+    REDO_HEADERS(bp, size, FREE);
 
-    if (GET_PREV_ALLOC(bp) == 0) {
+    if (GET_PREV_ALLOC(bp) == FREE) {
         // Coalesce with previous
         DEBUG("Coalescing with prev");
         bp = GET_PREV_BLOCK(bp);
+        DEBUG("Prev pointer %p", bp);
         size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
-        REDO_HEADERS(bp, size, 0);
-        removeFreeBlock(bp);
+        REDO_HEADERS(bp, size, FREE);
+        remove_free_block(bp);
     }
 
-    byte_t* nextHeader = GET_NEXT_HEADER(bp);
+    byte_t* next_header = GET_NEXT_HEADER(bp);
 
-    if (GET_ALLOC_FROM_HEADER(nextHeader) == 0) {
+    if (GET_ALLOC_FROM_HEADER(next_header) == FREE) {
         // Coalesce with next
         DEBUG("Coalescing with next");
-        size += GET_SIZE_FROM_HEADER(nextHeader) + BOUNDARY_SIZE + HEADER_SIZE;
-        REDO_HEADERS(bp, size, 0);
-        removeFreeBlock(nextHeader + HEADER_SIZE);
+        DEBUG("Next header %p", next_header);
+        size += GET_SIZE_FROM_HEADER(next_header) + BOUNDARY_SIZE + HEADER_SIZE;
+        REDO_HEADERS(bp, size, FREE);
+        remove_free_block(next_header + HEADER_SIZE);
     }
 
     // Insert bp before the current free list head
-    LINK_FREE(bp, freeList);
+    LINK_FREE(bp, free_list);
     PUT_PREV_FREE(bp, NULL);
-    freeList = bp;
+    free_list = bp;
 
     DEBUG("Finished freeing pointer %p", bp);
 }
@@ -422,15 +427,15 @@ void* relock(void* ptr, size_t size)
     }
 
     size = ALIGN_BYTES(size);
-    word_t currentSize = GET_SIZE(ptr);
+    word_t current_size = GET_SIZE(ptr);
 
-    if (size == currentSize) {
+    if (size == current_size) {
         DEBUG("No change needed");
         return ptr;
     }
 
-    if (size < currentSize) {
-        size_t leftover = currentSize - size;
+    if (size < current_size) {
+        size_t leftover = current_size - size;
 
         if (leftover < MIN_BLOCK_SIZE) {
             // Not enough leftovers to make a new free block
@@ -439,75 +444,75 @@ void* relock(void* ptr, size_t size)
         }
 
         // Create new free block from leftovers
-        REDO_HEADERS(ptr, size, 1);
-        byte_t* newFp = GET_NEXT_BLOCK(ptr);
-        REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
-        unlock(newFp);
+        REDO_HEADERS(ptr, size, ALLOCATED);
+        byte_t* new_fp = GET_NEXT_BLOCK(ptr);
+        REDO_HEADERS(new_fp, leftover - HEADER_SIZE - BOUNDARY_SIZE, FREE);
+        unlock(new_fp);
 
         DEBUG("Shrunk and created new free block");
         return ptr;
     }
 
-    size_t needed = size - currentSize;
-    byte_t* nextBp = GET_NEXT_BLOCK(ptr);
-    size_t gainedInMerge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(nextBp);
+    size_t needed = size - current_size;
+    byte_t* next_bp = GET_NEXT_BLOCK(ptr);
+    size_t gained_in_merge = BOUNDARY_SIZE + HEADER_SIZE + GET_SIZE(next_bp);
 
-    if (GET_ALLOC(nextBp) == 1 || gainedInMerge < needed) {
+    if (GET_ALLOC(next_bp) == ALLOCATED || gained_in_merge < needed) {
         // Next block is not free or next block is not large enough
-        byte_t* newPtr = mlock(size);
+        byte_t* new_ptr = mlock(size);
 
         // Copy old data over
-        memcpy(newPtr, ptr, currentSize);
+        memcpy(new_ptr, ptr, current_size);
 
         unlock(ptr);
         DEBUG("Made new pointer entirely");
-        return newPtr;
+        return new_ptr;
     }
 
     // Next block can be merged into
-    removeFreeBlock(nextBp);
-    size_t leftover = gainedInMerge - needed;
+    remove_free_block(next_bp);
+    size_t leftover = gained_in_merge - needed;
 
     if (leftover == 0) {
         // Next block was exactly large enough
-        REDO_HEADERS(ptr, size, 1);
+        REDO_HEADERS(ptr, size, ALLOCATED);
         DEBUG("Absorb next block");
         return ptr;
     }
 
     if (leftover < MIN_BLOCK_SIZE) {
         // Not enough leftovers to create a new free block; absorb it entirely
-        size = currentSize + gainedInMerge;
-        REDO_HEADERS(ptr, size, 1);
+        size = current_size + gained_in_merge;
+        REDO_HEADERS(ptr, size, ALLOCATED);
         DEBUG("Expand and absorb next block");
         return ptr;
     }
 
     // Create new free block from leftovers
-    REDO_HEADERS(ptr, size, 1);
-    byte_t* newFp = GET_NEXT_BLOCK(ptr);
-    REDO_HEADERS(newFp, leftover - HEADER_SIZE - BOUNDARY_SIZE, 0);
-    unlock(newFp);
+    REDO_HEADERS(ptr, size, ALLOCATED);
+    byte_t* new_fp = GET_NEXT_BLOCK(ptr);
+    REDO_HEADERS(new_fp, leftover - HEADER_SIZE - BOUNDARY_SIZE, FREE);
+    unlock(new_fp);
 
     DEBUG("Absorbed part of next block and created new free block");
     return ptr;
 }
 
-static void removeFreeBlock(byte_t* fp)
+static void remove_free_block(byte_t* fp)
 {
     DEBUG("Removing free block %p", fp);
     byte_t* next = GET_NEXT_FREE(fp);
     byte_t* prev = GET_PREV_FREE(fp);
 
-    if (fp == freeList) {
-        freeList = next;
+    if (fp == free_list) {
+        free_list = next;
     }
 
     LINK_FREE(prev, next);
     DEBUG("Removed free block %p", fp);
 }
 
-static int extendHeap(size_t size)
+static int extend_heap(size_t size)
 {
     DEBUG("Extending heap with %ld bytes", size);
 
@@ -519,12 +524,12 @@ static int extendHeap(size_t size)
         return -1;
     }
 
-    REDO_HEADERS(fp, size, 0);  // Override old epilogue with new header
-    PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, 1));  // New epilogue
+    REDO_HEADERS(fp, size, FREE);  // Override old epilogue with new header
+    PUT_WORD(GET_NEXT_HEADER(fp), PACK_HEADER(0, ALLOCATED));  // New epilogue
 
-    // Inserts fp into freeList
+    // Inserts fp into free_list
     unlock(fp);
-    DEBUG("Extended heap to make new block and inserted into freeList");
+    DEBUG("Extended heap to make new block and inserted into free_list");
     return 0;
 }
 
@@ -532,47 +537,47 @@ static void place(byte_t* fp, word_t size)
 {
     DEBUG("Placing a block of size %ld at pointer %p", size, fp);
 
-    removeFreeBlock(fp);
+    remove_free_block(fp);
     size = ALIGN_BYTES(size);
 
-    word_t availableSize = GET_SIZE(fp);
-    word_t difference = availableSize - size;
+    word_t available_size = GET_SIZE(fp);
+    word_t difference = available_size - size;
 
     if (difference == 0) {
         // No adjustment needed
-        REDO_HEADERS(fp, size, 1);
+        REDO_HEADERS(fp, size, ALLOCATED);
         DEBUG("Placed block");
         return;
     }
 
     if (difference < MIN_BLOCK_SIZE) {
         // Not enough space to make a new block; grow to absorb leftovers
-        size = availableSize;
-        REDO_HEADERS(fp, size, 1);
+        size = available_size;
+        REDO_HEADERS(fp, size, ALLOCATED);
         DEBUG("Expanded and placed block");
         return;
     }
 
     // Create new free block
-    REDO_HEADERS(fp, size, 1);
-    byte_t* newFp = GET_NEXT_BLOCK(fp);
-    REDO_HEADERS(newFp, difference - HEADER_SIZE - BOUNDARY_SIZE, 0);
-    unlock(newFp);
+    REDO_HEADERS(fp, size, ALLOCATED);
+    byte_t* new_fp = GET_NEXT_BLOCK(fp);
+    REDO_HEADERS(new_fp, difference - HEADER_SIZE - BOUNDARY_SIZE, FREE);
+    unlock(new_fp);
     DEBUG("Placed block and made new free block from leftovers");
 }
 
-static byte_t* findFit(word_t size)
+static byte_t* find_fit(word_t size)
 {
     DEBUG("Searching for free block of size %ld", size);
 
-    if (freeList == NULL) {
+    if (free_list == NULL) {
         DEBUG("Free list is empty");
         return NULL;
     }
 
     size = ALIGN_BYTES(size);
 
-    byte_t* fp = freeList;
+    byte_t* fp = free_list;
     for (; fp != NULL; fp = GET_NEXT_FREE(fp)) {
         if (GET_SIZE(fp) >= size) {
             DEBUG("Found pointer %p", fp);
