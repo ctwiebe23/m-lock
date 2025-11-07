@@ -3,7 +3,7 @@
  * FILE     : mlock.c
  * AUTHOR   : C Wiebe <ctwiebe23@gmail.com>
  * DATE     : OCT 12 2025
- * 
+ *
  * Source file for M-LOCK, a C memory allocator.  Documentation in header file.
  */
 
