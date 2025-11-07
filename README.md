@@ -25,10 +25,10 @@ void* relock(void* ptr, size_t size);
 
 Known bugs will be listed here.
 
-Report bugs to [ctwiebe23@gmail.com](mailto:ctwiebe23@gmail.com).
+Report bugs to [bugs@cwiebe.com](mailto:bugs@cwiebe.com).
 
 # SEE ALSO
 
-- [Source code]()
-- [Online README]()
-- [CHANGELOG]()
+- [Source code](https://github.com/ctwiebe23/m-lock)
+- [Online README](https://cwiebe.com/m-lock)
+- [CHANGELOG](https://cwiebe.com/m-lock/changelog)
