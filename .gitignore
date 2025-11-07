@@ -1,5 +1,4 @@
 *.o
 a.out
 run_test
-mdriver
-class_files/
+.vscode/

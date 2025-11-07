@@ -3,53 +3,11 @@
  * FILE     : mlock.c
  * AUTHOR   : C Wiebe <ctwiebe23@gmail.com>
  * DATE     : OCT 12 2025
- *
- * Custom allocator using explicit doubly-linked lists, boundary tags,
- * coalescing, and LIFO insertion.
- *
- * IF YOUR SYSTEM IS NOT 64-BIT, DEFINE `MLOCK_WORD_SIZE` TO BE EQUAL TO YOUR
- * SYSTEM'S WORD SIZE IN BYTES.  FOR 32-BIT SYSTEMS, THAT WOULD BE 4.  YOU WILL
- * GET SEGMENTATION FAULTS OTHERWISE.
- *
- * ----------------------------------------------------------------------------
- *
- * Each block has a one-word header and boundary tag of the form:
- *
- *                        63 62 61  .  .  .  3  2  1  0
- *                      +-------------------------------+
- *                      |  s  s  s  .  .  .  s  0  0  a |
- *                      +-------------------------------+
- *
- * Where s is the size of the block's data in bytes and a is set if the block
- * is allocated.  Blocks are aligned to eight-byte boundaries, which is why the
- * first three bits of the size are inconsequential.
- *
- * For free blocks, the first two words of the payload will be pointers to the
- * data of the next free block and the previous free block.  Thus, the smallest
- * possible total block size is four words (two words of data/pointers, two
- * words of header/boundary tag).  Data-wise, the smallest possible block is
- * two words.
- *
- * The free list is LIFO --- only the "first" node of the list is tracked using
- * a global variable, and new frees will be inserted at the start to become the
- * new head.
- *
- * The heap has the following form:
- *
- *                       word   contents
- *                     +------+--------------------------+
- *                     |    1 | padding (key)            |
- *                     |    2 | prologue header          |
- *                     |    3 | prologue boundary tag    |
- *                     |    . | ...                      |
- *                     |    . | zero or more user blocks |
- *                     |    . | ...                      |
- *                     |    n | epilogue header          |
- *                     +------+--------------------------+
  */
 
-#include <string.h>  // For memcpy
-#include <unistd.h>  // For sbrk
+// ---[ INCLUDES ]-------------------------------------------------------------
+
+#include "mlock.h"
 
 // ---[ DEBUG ]----------------------------------------------------------------
 
@@ -134,13 +92,13 @@ typedef char byte_t;    // A byte; 8 bits
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the block's header.
  */
-#define GET_HEADER(bp) ((byte_t*)(bp)-HEADER_SIZE)
+#define GET_HEADER(bp) ((byte_t*)(bp) - HEADER_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
  * @returns Pointer to the previous block's boundary tag.
  */
-#define GET_PREV_BOUNDARY(bp) ((byte_t*)(bp)-HEADER_SIZE - BOUNDARY_SIZE)
+#define GET_PREV_BOUNDARY(bp) ((byte_t*)(bp) - HEADER_SIZE - BOUNDARY_SIZE)
 
 /**
  * @param bp Pointer to the start of a block's data.
@@ -190,7 +148,7 @@ typedef char byte_t;    // A byte; 8 bits
  * @returns Pointer to the previous block's data.
  */
 #define GET_PREV_BLOCK(bp)                                                    \
-    ((byte_t*)(bp)-HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
+    ((byte_t*)(bp) - HEADER_SIZE - BOUNDARY_SIZE - GET_PREV_SIZE(bp))
 
 /**
  * @param fp Pointer to the start of a free block's data.
@@ -296,10 +254,6 @@ static byte_t* find_fit(word_t size);
 
 // ---[ FUNCTION DEFINITIONS ]-------------------------------------------------
 
-/**
- * Initialize the memory manager.
- * @returns Pointer to the start of the heap on a success, else NULL.
- */
 void* init_lock(void)
 {
     DEBUG("Initializing memory");
@@ -328,11 +282,6 @@ void* init_lock(void)
     return (void*)heap_start;
 }
 
-/**
- * Allocate a block of at least the given size.
- * @param size The minimum size of the block's data in bytes.
- * @returns A pointer to the start of the block's data.
- */
 void* mlock(size_t size)
 {
     DEBUG("Starting malloc of size %ld", size);
@@ -366,28 +315,24 @@ void* mlock(size_t size)
     return fp;
 }
 
-/**
- * Frees the given block by adding it to the free list.
- * @param bp Pointer to the start of a block's data.
- */
-void unlock(void* bp)
+void unlock(void* ptr)
 {
-    DEBUG("Freeing pointer %p", bp);
+    DEBUG("Freeing pointer %p", ptr);
 
-    word_t size = GET_SIZE(bp);
-    REDO_HEADERS(bp, size, FREE);
+    word_t size = GET_SIZE(ptr);
+    REDO_HEADERS(ptr, size, FREE);
 
-    if (GET_PREV_ALLOC(bp) == FREE) {
+    if (GET_PREV_ALLOC(ptr) == FREE) {
         // Coalesce with previous
         DEBUG("Coalescing with prev");
-        bp = GET_PREV_BLOCK(bp);
-        DEBUG("Prev pointer %p", bp);
-        size += GET_SIZE(bp) + BOUNDARY_SIZE + HEADER_SIZE;
-        REDO_HEADERS(bp, size, FREE);
-        remove_free_block(bp);
+        ptr = GET_PREV_BLOCK(ptr);
+        DEBUG("Prev pointer %p", ptr);
+        size += GET_SIZE(ptr) + BOUNDARY_SIZE + HEADER_SIZE;
+        REDO_HEADERS(ptr, size, FREE);
+        remove_free_block(ptr);
     }
 
-    byte_t* next_header = GET_NEXT_HEADER(bp);
+    byte_t* next_header = GET_NEXT_HEADER(ptr);
 
     if (GET_ALLOC_FROM_HEADER(next_header) == FREE) {
         // Coalesce with next
@@ -395,24 +340,18 @@ void unlock(void* bp)
         DEBUG("Next header %p", next_header);
         size
             += GET_SIZE_FROM_HEADER(next_header) + BOUNDARY_SIZE + HEADER_SIZE;
-        REDO_HEADERS(bp, size, FREE);
+        REDO_HEADERS(ptr, size, FREE);
         remove_free_block(next_header + HEADER_SIZE);
     }
 
-    // Insert bp before the current free list head
-    LINK_FREE(bp, free_list);
-    PUT_PREV_FREE(bp, NULL);
-    free_list = bp;
+    // Insert ptr before the current free list head
+    LINK_FREE(ptr, free_list);
+    PUT_PREV_FREE(ptr, NULL);
+    free_list = ptr;
 
-    DEBUG("Finished freeing pointer %p", bp);
+    DEBUG("Finished freeing pointer %p", ptr);
 }
 
-/**
- * Re-allocates the given pointer to a block of the given size.
- * @param ptr Pointer to the start of a block's data.
- * @param size The new size of the block in bytes.
- * @returns The new pointer.
- */
 void* relock(void* ptr, size_t size)
 {
     DEBUG("Reallocating pointer %p to size %ld", ptr, size);

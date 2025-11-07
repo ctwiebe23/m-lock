@@ -1,6 +1,6 @@
 // #define MLOCK_ENABLE_DEBUG
 // #define MLOCK_WORD_SIZE 4
-#include "../src/mlock.c"
+#include "../src/mlock.h"
 #include <stdio.h>
 #include <time.h>
 
