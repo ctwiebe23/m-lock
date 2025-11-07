@@ -2,3 +2,5 @@
 a.out
 run_test
 .vscode/
+*.case
+gen
